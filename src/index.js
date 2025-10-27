@@ -1,1 +1,1 @@
-// TODO: Export functions
+export { tokenize } from "./lexer.js";

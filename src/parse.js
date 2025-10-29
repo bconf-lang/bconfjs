@@ -103,7 +103,7 @@ export class Parser {
 			throw new Error("Illegal value in embedded value");
 		}
 
-		if (this.currToken.type !== TokenType.RBRACE) {
+		if (this.currToken.type !== TokenType.EMBEDDED_VALUE_END) {
 			throw new Error("Unclosed embedded value");
 		}
 

@@ -1,4 +1,8 @@
 /**
+ * @typedef {{ mode: number, stringType: number }} LexerContext
+ */
+
+/**
  * @param {string} input Input bconf file
  */
 export function tokenize(input) {
@@ -90,14 +94,20 @@ export class Lexer {
 	/** @type {number} */ position = 0;
 	/** @type {number} */ column = 1;
 	/** @type {number} */ row = 1;
-	/** @type {number} */ mode = LexerMode.DEFAULT;
-	/** @type {number} */ stringType = StringType.DOUBLE;
+	/** @type {LexerContext[]} */ contextStack = [
+		{ mode: LexerMode.DEFAULT, stringType: StringType.OFF },
+	];
 
 	/**
 	 * @param {string} input
 	 */
 	constructor(input) {
 		this.input = input;
+	}
+
+	/** @returns {LexerContext} */
+	get currentContext() {
+		return this.contextStack[this.contextStack.length - 1];
 	}
 
 	/**
@@ -249,12 +259,15 @@ export class Lexer {
 					return new Token(TokenType.STRING_CONTENT, literal, this.row, startCol);
 				}
 
-				this.mode = LexerMode.EMBEDDED_VALUE;
+				this.contextStack.push({
+					mode: LexerMode.EMBEDDED_VALUE,
+					stringType: this.currentContext.stringType,
+				});
 				this.advance(2);
 				return new Token(TokenType.EMBEDDED_VALUE_START, "${", this.row, startCol);
 			}
 
-			if (!isAllowedChar(currChar, this.stringType)) {
+			if (!isAllowedChar(currChar, this.currentContext.stringType)) {
 				if (this.position > startPos) {
 					const literal = this.input.substring(startPos, this.position);
 					return new Token(TokenType.STRING_CONTENT, literal, this.row, startCol);
@@ -268,7 +281,6 @@ export class Lexer {
 			currChar = this.peek();
 		}
 
-		this.stringType = StringType.OFF;
 		if (this.position > startPos) {
 			const literal = this.input.substring(startPos, this.position);
 			return new Token(TokenType.STRING_CONTENT, literal, this.row, startCol);
@@ -290,7 +302,7 @@ export class Lexer {
 
 		// Always prioritize reading string content to prevent the wrong tokens from being
 		// created in the switch statement below
-		if (this.mode === LexerMode.STRING) {
+		if (this.currentContext.mode === LexerMode.STRING) {
 			const token = this.readStringContent();
 
 			// If no token is returned, it means there is a boundary that was reached (EOF, string delimiter).
@@ -346,8 +358,13 @@ export class Lexer {
 				return new Token(TokenType.LBRACE, "{", this.row, col);
 			case "}":
 				this.advance();
-				if (this.mode === LexerMode.EMBEDDED_VALUE) {
-					this.mode = LexerMode.STRING;
+				if (this.currentContext.mode === LexerMode.EMBEDDED_VALUE) {
+					if (this.contextStack.length <= 1) {
+						// Orphaned closing brace outside any embedded value
+						return new Token(TokenType.ILLEGAL, "}", this.row, col);
+					}
+
+					this.contextStack.pop();
 					return new Token(TokenType.EMBEDDED_VALUE_END, "}", this.row, col);
 				}
 				return new Token(TokenType.RBRACE, "}", this.row, col);
@@ -366,22 +383,26 @@ export class Lexer {
 				this.advance();
 				return new Token(TokenType.ILLEGAL, "\r", this.row, col);
 
-			case '"':
-				// Need to be able to determine when to switch back to default or not
-				if (this.mode === LexerMode.STRING && this.stringType === StringType.OFF) {
-					this.mode = LexerMode.DEFAULT;
+			case '"': {
+				const isTripleQuote = this.peek(1) === '"' && this.peek(2) === '"';
+
+				if (this.currentContext.mode === LexerMode.STRING) {
+					this.contextStack.pop();
 				} else {
-					this.mode = LexerMode.STRING;
+					this.contextStack.push({
+						mode: LexerMode.STRING,
+						stringType: isTripleQuote ? StringType.TRIPLE : StringType.DOUBLE,
+					});
 				}
 
-				if (this.peek(1) === '"' && this.peek(2) === '"') {
-					this.advance(3);
-					this.stringType = StringType.TRIPLE;
-					return new Token(TokenType.TRIPLE_QUOTE, '"""', this.row, col);
-				}
-				this.advance();
-				this.stringType = StringType.DOUBLE;
-				return new Token(TokenType.DOUBLE_QUOTE, '"', this.row, col);
+				this.advance(isTripleQuote ? 3 : 1);
+				return new Token(
+					isTripleQuote ? TokenType.TRIPLE_QUOTE : TokenType.DOUBLE_QUOTE,
+					isTripleQuote ? '"""' : '"',
+					this.row,
+					col
+				);
+			}
 
 			default:
 				if (IDENTIFIER_CANDIDATE_REGEX.test(char)) {

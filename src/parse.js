@@ -276,7 +276,40 @@ class Parser {
 	}
 
 	parseArray() {
-		return [];
+		this.advance(); // Consume `[`
+
+		/** @type {Array<unknown>} */
+		const arr = [];
+		while (
+			this.currToken.type !== TokenType.RBRACKET &&
+			this.currToken.type !== TokenType.EOF
+		) {
+			// Skip newlines used for formatting
+			while (this.currToken.type === TokenType.NEWLINE) {
+				this.advance();
+			}
+
+			// Guarding against cases where its just lots of empty newlines at the end of the array
+			if (
+				this.currToken.type === TokenType.RBRACKET ||
+				this.currToken.type === TokenType.EOF
+			) {
+				break;
+			}
+
+			arr.push(this.parseValue());
+
+			if (this.currToken.type === TokenType.COMMA) {
+				this.advance();
+			}
+		}
+
+		if (this.currToken.type !== TokenType.RBRACKET) {
+			throw new Error("Expected closing brace ']' for array");
+		}
+
+		this.advance(); // Consume `]`
+		return arr;
 	}
 
 	parseValue() {

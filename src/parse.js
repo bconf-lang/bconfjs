@@ -3,7 +3,7 @@
  * @import { Token } from './lexer.js'
  */
 
-import { tokenize, TokenType } from "./lexer.js";
+import { Keywords, tokenize, TokenType } from "./lexer.js";
 
 const EXPONENT_REGEX = /[eE]/;
 
@@ -232,7 +232,20 @@ class Parser {
 			this.advance();
 		}
 
-		const value = Number(resolvedNumber);
+		if (
+			resolvedNumber.charAt(0) === "_" ||
+			resolvedNumber.charAt(resolvedNumber.length - 1) === "_"
+		) {
+			throw new Error("Cannot have leading or trailing underscores for number");
+		}
+
+		// Pretty naive way of checking if there are consecutive underscores, but it works
+		if (resolvedNumber.includes("__")) {
+			throw new Error("Cannot have consecutive underscores for number");
+		}
+
+		// Need to replace the underscores for the conversion since it's an invalid number otherwise
+		const value = Number(resolvedNumber.replaceAll("_", ""));
 		if (isNaN(value)) {
 			throw new Error("Invalid number");
 		} else if (value === Infinity || value === -Infinity) {
@@ -243,9 +256,46 @@ class Parser {
 		return { type, value };
 	}
 
-	parseValue() {
-		this.advance();
+	parseString() {
 		return "";
+	}
+
+	parseTag() {
+		return "";
+	}
+
+	parseObject() {
+		return {};
+	}
+
+	parseArray() {
+		return [];
+	}
+
+	parseValue() {
+		switch (this.currToken.type) {
+			case TokenType.IDENTIFIER:
+				return this.peek().type === TokenType.LPAREN
+					? this.parseTag()
+					: this.parseNumber().value;
+			case TokenType.NULL:
+				this.advance();
+				return null;
+			case TokenType.BOOLEAN: {
+				const value = this.currToken.literal === Keywords.TRUE;
+				this.advance();
+				return value;
+			}
+			case TokenType.LBRACE:
+				return this.parseObject();
+			case TokenType.LBRACKET:
+				return this.parseArray();
+			case TokenType.DOUBLE_QUOTE:
+			case TokenType.TRIPLE_QUOTE:
+				return this.parseString();
+			default:
+				throw new Error("Unexpected token for value");
+		}
 	}
 
 	/**

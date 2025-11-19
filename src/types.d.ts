@@ -25,11 +25,13 @@ export type ParseOptions = {
 };
 
 export type KeyPart = {
-	type: "alphanumeric" | "string";
-	value: string;
+	type: "alphanumeric" | "string" | "variable";
+	key: string;
 	// The array index number associated with this key
-	index?: number | null;
+	index: number | null;
 };
+
+export type Operator = "append" | "assign" | "object-shorthand" | "true-shorthand" | "statement";
 
 export type ParsedNumber = {
 	type: "integer" | "float";

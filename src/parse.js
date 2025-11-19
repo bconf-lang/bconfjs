@@ -163,39 +163,39 @@ class Parser {
 	}
 
 	/**
+	 * @param {string} stopToken
 	 * @returns {Operator}
 	 */
-	parseOperator() {
-		/** @type {Operator} */
-		let operator;
+	parseOperator(stopToken) {
 		switch (this.currToken.type) {
 			case TokenType.APPEND:
-				operator = "append";
-				break;
+				this.advance();
+				return "append";
 			case TokenType.ASSIGN:
-				operator = "assign";
-				break;
+				this.advance();
+				return "assign";
 			case TokenType.LBRACE:
-				operator = "object-shorthand";
-				break;
+				return "object-shorthand";
 			case TokenType.NEWLINE:
 			case TokenType.EOF:
-				operator = "true-shorthand";
-				break;
+			case stopToken:
+				return "true-shorthand";
+			case TokenType.COMMA:
+				if (stopToken === TokenType.EOF) {
+					throw new Error("Unexpected token as operator");
+				}
+				return "true-shorthand"; // This accounts for trailing commas in objects like `{foo,}`
 			case TokenType.IDENTIFIER:
 			case TokenType.BOOLEAN:
 			case TokenType.NULL:
 			case TokenType.LBRACKET:
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
-				operator = "statement";
-				break;
+				this.advance();
+				return "statement";
 			default:
 				throw new Error("Unexpected token as operator");
 		}
-
-		this.advance();
-		return operator;
 	}
 
 	parseStatement() {}
@@ -265,7 +265,14 @@ class Parser {
 	}
 
 	parseObject() {
-		return {};
+		this.advance(); // Consume `{`
+		const obj = this.parseBlock(TokenType.RBRACE);
+		if (this.currToken.type !== TokenType.RBRACE) {
+			throw new Error("Expected closing brace '}' for object");
+		}
+
+		this.advance(); // Consume `}`
+		return obj;
 	}
 
 	parseArray() {
@@ -299,20 +306,24 @@ class Parser {
 	}
 
 	/**
+	 * @param {string} stopToken
 	 * @returns {Record<string, unknown>}
 	 */
-	parse() {
+	parseBlock(stopToken) {
 		/** @type {Record<string, unknown>} */
 		const result = {};
 
-		while (this.currToken.type !== TokenType.EOF) {
+		// Determine if commas are allowed based on context
+		const isRoot = stopToken === TokenType.EOF;
+
+		while (this.currToken.type !== stopToken && this.currToken.type !== TokenType.EOF) {
 			// Skip newlines used for formatting
 			while (this.currToken.type === TokenType.NEWLINE) {
 				this.advance();
 			}
 
 			// Guarding against cases where its just lots of empty newlines at the end of the file
-			if (this.currToken.type === TokenType.EOF) {
+			if (this.currToken.type === TokenType.EOF || this.currToken.type === stopToken) {
 				break;
 			}
 
@@ -322,7 +333,7 @@ class Parser {
 				throw new Error("Somehow ended up with an empty key....");
 			}
 
-			const operator = this.parseOperator();
+			const operator = this.parseOperator(stopToken);
 			switch (operator) {
 				case "append": {
 					// TODO
@@ -346,9 +357,20 @@ class Parser {
 					break;
 				}
 			}
+
+			if (!isRoot && this.currToken.type === TokenType.COMMA) {
+				this.advance();
+			}
 		}
 
 		return result;
+	}
+
+	/**
+	 * @returns {Record<string, unknown>}
+	 */
+	parse() {
+		return this.parseBlock(TokenType.EOF);
 	}
 }
 

@@ -1,9 +1,11 @@
 /**
- * @import { KeyPart, Operator } from './types.js'
+ * @import { KeyPart, Operator, ParsedNumber } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
 import { tokenize, TokenType } from "./lexer.js";
+
+const EXPONENT_REGEX = /[eE]/;
 
 /**
  * Parse a bconf file
@@ -97,14 +99,21 @@ class Parser {
 			throw new Error("Expected index number inside brackets");
 		}
 
-		const index = Number(this.currToken.literal); // TODO: Parse number and ensure only integers are allowed
-		this.advance(); // Consume Number
+		const index = this.parseNumber();
+		if (index.type === "float") {
+			throw new Error("Index cannot be a float");
+		}
+
+		if (index.value < 0) {
+			throw new Error("Cannot have negative index number");
+		}
+
 		if (this.currToken.type !== TokenType.RBRACKET) {
 			throw new Error("Expected closing bracket ']'");
 		}
 
 		this.advance(); // Consume `]`
-		return index;
+		return index.value;
 	}
 
 	/**
@@ -190,6 +199,49 @@ class Parser {
 	}
 
 	parseStatement() {}
+
+	/**
+	 * @returns {ParsedNumber}
+	 */
+	parseNumber() {
+		if (this.currToken.type !== TokenType.IDENTIFIER) {
+			throw new Error("Expected IDENTIFIER token");
+		}
+
+		let resolvedNumber = this.currToken.literal ?? "";
+		/** @type {ParsedNumber['type']} */
+		let type = "integer";
+		if (EXPONENT_REGEX.test(resolvedNumber)) {
+			type = "float";
+		}
+
+		this.advance();
+
+		// Building a float. Any exponents without a fractional (ie. `123e4`)
+		// should already be collected by the first token, so we only need to check
+		// for the DOT token to see if there is a fraction present
+		if (this.currToken.type === TokenType.DOT) {
+			type = "float";
+			resolvedNumber += ".";
+			this.advance();
+			if (this.currToken.type !== TokenType.IDENTIFIER) {
+				throw new Error("Invalid float");
+			}
+
+			resolvedNumber += this.currToken.literal ?? "";
+			this.advance();
+		}
+
+		const value = Number(resolvedNumber);
+		if (isNaN(value)) {
+			throw new Error("Invalid number");
+		} else if (value === Infinity || value === -Infinity) {
+			// Following the spec that infinity values are not supported
+			throw new Error("Infinity value not supported");
+		}
+
+		return { type, value };
+	}
 
 	parseValue() {
 		this.advance();

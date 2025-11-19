@@ -50,6 +50,14 @@ class Parser {
 		this.pos += count;
 	}
 
+	isTag() {
+		return (
+			this.currToken.type === TokenType.IDENTIFIER &&
+			!this.currToken.literal?.includes("+") &&
+			this.peek().type === TokenType.LPAREN
+		);
+	}
+
 	/**
 	 * @returns {KeyPart}
 	 */
@@ -79,7 +87,7 @@ class Parser {
 				break;
 			case TokenType.DOUBLE_QUOTE:
 				part.type = "string";
-				part.key = this.currToken.literal; // TODO: Parse string value
+				part.key = this.parseString();
 				break;
 			default:
 				throw new Error("Unexpected key type");
@@ -256,8 +264,116 @@ class Parser {
 		return { type, value };
 	}
 
+	/**
+	 * @returns {string}
+	 */
+	parseEmbeddedValue() {
+		this.advance(); // Consume `${`
+
+		if (!this.currToken.literal) {
+			throw new Error("Unexpected empty literal");
+		}
+
+		/** @type {string} */
+		let value;
+		switch (this.currToken.type) {
+			case TokenType.DOUBLE_QUOTE:
+			case TokenType.TRIPLE_QUOTE:
+				value = this.parseString();
+				break;
+			case TokenType.VARIABLE:
+				// TODO: resolve variable value
+				value = "";
+				break;
+			case TokenType.IDENTIFIER:
+				value = this.isTag() ? this.parseTag() : String(this.parseNumber().value);
+				break;
+			case TokenType.NULL:
+			case TokenType.BOOLEAN:
+				value = this.currToken.literal;
+				break;
+			default:
+				throw new Error("unexpected token in embedded value");
+		}
+
+		if (this.currToken.type !== TokenType.EMBEDDED_VALUE_END) {
+			throw new Error("Expected closing brace '}' for embedded value");
+		}
+
+		this.advance(); // Consume `}`
+		return value;
+	}
+
+	parseEscapedValue() {
+		if (!this.currToken.literal) {
+			throw new Error("Unexpect empty value for escaped value");
+		}
+
+		const code = this.currToken.literal[1];
+		switch (code) {
+			case '"':
+				return '"';
+			case "\\":
+				return "\\";
+			case "$":
+				return "$";
+			case "b":
+				return "\b";
+			case "f":
+				return "\f";
+			case "n":
+				return "\n";
+			case "r":
+				return "\r";
+			case "t":
+				return "\t";
+			case "u":
+			case "U":
+				const codePoint = parseInt(this.currToken.literal.substring(2), 16);
+				if (isNaN(codePoint)) {
+					throw new Error("Invalid unicode code point in escape sequence");
+				}
+
+				try {
+					return String.fromCodePoint(codePoint);
+				} catch (e) {
+					throw new Error("Invalid unicode code point");
+				}
+
+			default:
+				throw new Error("Invalid escape sequence");
+		}
+	}
+
 	parseString() {
-		return "";
+		const boundary = this.currToken.type;
+		this.advance(); // Consume `"` or `"""`
+
+		let resolved = "";
+		while (this.currToken.type !== boundary) {
+			switch (this.currToken.type) {
+				case TokenType.STRING_CONTENT:
+					resolved += this.currToken.literal ?? "";
+					this.advance();
+					break;
+				case TokenType.EMBEDDED_VALUE_START:
+					resolved += this.parseEmbeddedValue();
+					break;
+				case TokenType.ESCAPE_SEQUENCE:
+					resolved += this.parseEscapedValue();
+					this.advance();
+					break;
+				default:
+					throw new Error("Unexpected token in string");
+			}
+		}
+
+		if (this.currToken.type !== boundary) {
+			throw new Error("Expected closing brace '}' for object");
+		}
+
+		this.advance(); // Consume `"` or `"""`
+		return resolved;
 	}
 
 	parseTag() {
@@ -315,9 +431,7 @@ class Parser {
 	parseValue() {
 		switch (this.currToken.type) {
 			case TokenType.IDENTIFIER:
-				return this.peek().type === TokenType.LPAREN
-					? this.parseTag()
-					: this.parseNumber().value;
+				return this.isTag() ? this.parseTag() : this.parseNumber().value;
 			case TokenType.NULL:
 				this.advance();
 				return null;

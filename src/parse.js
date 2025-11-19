@@ -1,9 +1,11 @@
 /**
- * @import { KeyPart, Operator, ParsedNumber } from './types.js'
+ * @import { KeyPart, Operator, ParsedNumber, Value } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
 import { Keywords, tokenize, TokenType } from "./lexer.js";
+import { BUILT_IN_TAGS } from "./resolvers.js";
+import { KeyPath, Tag } from "./values.js";
 
 const EXPONENT_REGEX = /[eE]/;
 
@@ -20,6 +22,7 @@ class Parser {
 	/** @type {Array<Token>} */ tokens;
 	/** @type {Token} */ currToken;
 	/** @type {number} */ pos;
+	/** @type {Record<string, unknown>} */ result = {};
 
 	/**
 	 * @param {string} input The file to parse
@@ -155,7 +158,7 @@ class Parser {
 	}
 
 	/**
-	 * @returns {Array<KeyPart>}
+	 * @returns {KeyPath}
 	 */
 	parseKey() {
 		/** @type {Array<KeyPart>} */
@@ -167,7 +170,7 @@ class Parser {
 			parts.push(...this.parseKeySegment());
 		}
 
-		return parts;
+		return new KeyPath(parts);
 	}
 
 	/**
@@ -286,7 +289,16 @@ class Parser {
 				value = "";
 				break;
 			case TokenType.IDENTIFIER:
-				value = this.isTag() ? this.parseTag() : String(this.parseNumber().value);
+				if (this.isTag()) {
+					const parsed = this.parseTag();
+					if (parsed instanceof Tag) {
+						throw new Error("Cannot have unresolved tag in embedded value");
+					}
+
+					value = String(parsed);
+				} else {
+					value = String(this.parseNumber().value);
+				}
 				break;
 			case TokenType.NULL:
 			case TokenType.BOOLEAN:
@@ -377,12 +389,43 @@ class Parser {
 	}
 
 	parseTag() {
-		return "";
+		if (!this.currToken.literal) {
+			throw new Error("Unexpected empty tag name");
+		}
+
+		const tagName = this.currToken.literal;
+		this.advance(); // Consume tag name
+
+		if (this.currToken.type !== TokenType.LPAREN) {
+			throw new Error("Expected opening brace '(' for tag");
+		}
+		this.advance(); // Consume `(`
+
+		let value = this.parseValue(true);
+		const resolver = BUILT_IN_TAGS.get(tagName);
+		if (resolver) {
+			value = resolver(value, {
+				resolve: (path) => getValueAtPath(this.result, path),
+			});
+		}
+
+		if (this.currToken.type !== TokenType.RPAREN) {
+			throw new Error("Expected opening brace ')' for tag");
+		}
+
+		if (value instanceof KeyPath || value instanceof Tag) {
+			value = value.serialize();
+		}
+		this.advance(); // Consume `)`
+		return resolver ? value : new Tag(tagName, value);
 	}
 
 	parseObject() {
 		this.advance(); // Consume `{`
-		const obj = this.parseBlock(TokenType.RBRACE);
+
+		/** @type {Record<string, unknown>} */
+		const obj = {};
+		this.parseBlock(TokenType.RBRACE, obj);
 		if (this.currToken.type !== TokenType.RBRACE) {
 			throw new Error("Expected closing brace '}' for object");
 		}
@@ -428,10 +471,34 @@ class Parser {
 		return arr;
 	}
 
-	parseValue() {
+	/**
+	 * @param {boolean=} allowBareKeys
+	 * @returns {Value}
+	 */
+	parseValue(allowBareKeys = false) {
 		switch (this.currToken.type) {
-			case TokenType.IDENTIFIER:
-				return this.isTag() ? this.parseTag() : this.parseNumber().value;
+			case TokenType.IDENTIFIER: {
+				if (this.isTag()) {
+					const tagValue = this.parseTag();
+					return tagValue instanceof Tag ? tagValue.serialize() : tagValue;
+				}
+
+				const firstChar = this.currToken.literal ? this.currToken.literal[0] : "";
+				const isDigit = firstChar >= "0" && firstChar <= "9";
+				const isSign = firstChar === "-" || firstChar === "+";
+
+				if (isDigit || isSign) {
+					return this.parseNumber().value;
+				}
+
+				if (allowBareKeys) {
+					return this.parseKey();
+				}
+
+				throw new Error(
+					`Unexpected identifier '${this.currToken.literal}' in value position.`
+				);
+			}
 			case TokenType.NULL:
 				this.advance();
 				return null;
@@ -454,12 +521,9 @@ class Parser {
 
 	/**
 	 * @param {string} stopToken
-	 * @returns {Record<string, unknown>}
+	 * @param {Record<string, unknown>} root
 	 */
-	parseBlock(stopToken) {
-		/** @type {Record<string, unknown>} */
-		const result = {};
-
+	parseBlock(stopToken, root) {
 		// Determine if commas are allowed based on context
 		const isRoot = stopToken === TokenType.EOF;
 
@@ -474,7 +538,7 @@ class Parser {
 				break;
 			}
 
-			const key = this.parseKey();
+			const key = this.parseKey().parts;
 			const lastKey = key[key.length - 1];
 			if (lastKey.index === null && !lastKey.key) {
 				throw new Error("Somehow ended up with an empty key....");
@@ -489,7 +553,7 @@ class Parser {
 				case "assign":
 				case "object-shorthand":
 				case "true-shorthand": {
-					const parent = getParentForKey(result, key);
+					const parent = getParentForKey(root, key);
 					const value = operator === "true-shorthand" ? true : this.parseValue();
 					const keyToUse = lastKey.index ?? lastKey.key;
 
@@ -509,15 +573,14 @@ class Parser {
 				this.advance();
 			}
 		}
-
-		return result;
 	}
 
 	/**
 	 * @returns {Record<string, unknown>}
 	 */
 	parse() {
-		return this.parseBlock(TokenType.EOF);
+		this.parseBlock(TokenType.EOF, this.result);
+		return this.result;
 	}
 }
 
@@ -608,4 +671,44 @@ function ensureContainer(parent, key, type) {
  */
 function isObject(value) {
 	return typeof value === "object" && !Array.isArray(value) && value !== null;
+}
+
+/**
+ * Safely retrieves a value from the root object using a KeyPath.
+ * Returns undefined if any part of the path does not exist or
+ * if the structure does not match (e.g. expecting an array but found an object).
+ * @param {Record<string, unknown> | Array<unknown>} root - The data structure to traverse
+ * @param {KeyPath} path - The parsed KeyPath object
+ * @returns {unknown | undefined}
+ */
+export function getValueAtPath(root, path) {
+	let current = root;
+
+	for (const part of path.parts) {
+		if (part.key) {
+			if (!isObject(current)) {
+				return undefined;
+			}
+
+			current = /** @type {Record<string, unknown>} */ (current[part.key]);
+		}
+
+		if (current === undefined) {
+			return undefined;
+		}
+
+		if (part.index !== null) {
+			if (!Array.isArray(current)) {
+				return undefined;
+			}
+
+			current = /** @type {Array<unknown>} */ (current[part.index]);
+		}
+
+		if (current === undefined) {
+			return undefined;
+		}
+	}
+
+	return current;
 }

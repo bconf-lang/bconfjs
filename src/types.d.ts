@@ -1,8 +1,21 @@
-export type TagResolver = (
-	value: unknown,
-	document: Record<string, unknown>,
-	variables: Record<string, unknown>
-) => any;
+import type { KeyPath, Tag } from "./values.js";
+
+export type Value =
+	| KeyPath
+	| Tag
+	| string
+	| number
+	| null
+	| boolean
+	| Record<string, unknown>
+	| Array<unknown>;
+
+export type TagResolver = (value: Value, args: TagResolverArgs) => any;
+export type TagResolverArgs = {
+	// Resolve the value at the given key. If the returned value is
+	// undefined, it does not exist
+	resolve: (key: KeyPath) => undefined | unknown;
+};
 
 export type StatementResolver = (
 	value: Array<unknown>,
@@ -22,6 +35,11 @@ export type ParseOptions = {
 
 	// Variables to inject when parsing
 	variables?: Record<`$${string}`, unknown>;
+
+	// The object to look at for environment variables. By default,
+	// this is `process.env` on non-browser environments and `window`
+	// for browsers
+	env?: Record<string, unknown>;
 };
 
 export type KeyPart = {

@@ -10,11 +10,21 @@ export type Value =
 	| Record<string, unknown>
 	| Array<unknown>;
 
-export type TagResolver = (value: Value, args: TagResolverArgs) => any;
+export type SerializableValue =
+	| string
+	| number
+	| null
+	| boolean
+	| Record<string, SerializableValue>
+	| Array<SerializableValue>;
+
+export type TagResolver = (value: Value, args: TagResolverArgs) => SerializableValue;
 export type TagResolverArgs = {
 	// Resolve the value at the given key. If the returned value is
 	// undefined, it does not exist
-	resolve: (key: KeyPath) => undefined | unknown;
+	resolve: (key: KeyPath) => undefined | SerializableValue;
+	// Record of environment variables
+	env: Record<string, unknown>;
 };
 
 export type StatementResolver = (

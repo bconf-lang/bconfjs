@@ -1,10 +1,11 @@
 /**
- * @import { KeyPart, Operator, ParsedNumber, Value } from './types.js'
+ * @import { KeyPart, Operator, ParsedNumber, ParseOptions, TagResolver, Value } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
 import { Keywords, tokenize, TokenType } from "./lexer.js";
-import { BUILT_IN_TAGS } from "./resolvers.js";
+import { BUILT_IN_TAG_RESOLVERS } from "./resolvers.js";
+import { getParentForKey, getValueAtPath, validateAndParseNumber } from "./utils.js";
 import { KeyPath, Tag } from "./values.js";
 
 const EXPONENT_REGEX = /[eE]/;
@@ -12,11 +13,14 @@ const EXPONENT_REGEX = /[eE]/;
 /**
  * Parse a bconf file
  * @param {string} input Input bconf file
+ * @param {ParseOptions=} opts Options for parsing
  */
-export function parse(input) {
-	const parser = new Parser(input);
+export function parse(input, opts) {
+	const parser = new Parser(input, opts);
 	return parser.parse();
 }
+
+const browser = typeof window !== "undefined";
 
 class Parser {
 	/** @type {Array<Token>} */ tokens;
@@ -24,10 +28,24 @@ class Parser {
 	/** @type {number} */ pos;
 	/** @type {Record<string, unknown>} */ result = {};
 
+	/** @type {Map<string, TagResolver>} */ tagResolvers = new Map(BUILT_IN_TAG_RESOLVERS);
+	env = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
+
 	/**
 	 * @param {string} input The file to parse
+	 * @param {ParseOptions=} opts Options for parsing
 	 */
-	constructor(input) {
+	constructor(input, opts) {
+		if (opts?.env) {
+			this.env = opts.env;
+		}
+
+		if (opts?.tags) {
+			for (const tag of opts.tags) {
+				this.tagResolvers.set(tag.name, tag.resolver);
+			}
+		}
+
 		this.pos = 0;
 		this.tokens = tokenize(input).filter(
 			(t) => t.type !== TokenType.COMMENT && t.type !== TokenType.WHITESPACE
@@ -243,27 +261,7 @@ class Parser {
 			this.advance();
 		}
 
-		if (
-			resolvedNumber.charAt(0) === "_" ||
-			resolvedNumber.charAt(resolvedNumber.length - 1) === "_"
-		) {
-			throw new Error("Cannot have leading or trailing underscores for number");
-		}
-
-		// Pretty naive way of checking if there are consecutive underscores, but it works
-		if (resolvedNumber.includes("__")) {
-			throw new Error("Cannot have consecutive underscores for number");
-		}
-
-		// Need to replace the underscores for the conversion since it's an invalid number otherwise
-		const value = Number(resolvedNumber.replaceAll("_", ""));
-		if (isNaN(value)) {
-			throw new Error("Invalid number");
-		} else if (value === Infinity || value === -Infinity) {
-			// Following the spec that infinity values are not supported
-			throw new Error("Infinity value not supported");
-		}
-
+		const value = validateAndParseNumber(resolvedNumber);
 		return { type, value };
 	}
 
@@ -402,10 +400,11 @@ class Parser {
 		this.advance(); // Consume `(`
 
 		let value = this.parseValue(true);
-		const resolver = BUILT_IN_TAGS.get(tagName);
+		const resolver = this.tagResolvers.get(tagName);
 		if (resolver) {
 			value = resolver(value, {
 				resolve: (path) => getValueAtPath(this.result, path),
+				env: this.env,
 			});
 		}
 
@@ -582,133 +581,4 @@ class Parser {
 		this.parseBlock(TokenType.EOF, this.result);
 		return this.result;
 	}
-}
-
-/**
- * @param {Record<string, unknown>} root
- * @param {Array<KeyPart>} key
- * @returns {Array<unknown> | Record<string, unknown>}
- */
-function getParentForKey(root, key) {
-	/** @type {Array<unknown> | Record<string, unknown>} */
-	let current = root;
-
-	for (let i = 0; i < key.length; i++) {
-		const part = key[i];
-		const isLastPart = i === key.length - 1;
-
-		if (part.key) {
-			if (isLastPart && part.index === null) {
-				break;
-			}
-
-			current = ensureContainer(current, part.key, part.index !== null ? "array" : "object");
-		}
-
-		if (part.index !== null) {
-			if (isLastPart) {
-				break;
-			}
-
-			const nextPart = key[i + 1];
-			// This is to consider if its a deeply nested property inside an array
-			// (eg. `foo.bar[0].baz` or `foo.bar[0][0]`) so the value can be properly created
-			const isNextPartArrayChain = !nextPart?.key && nextPart.index !== null;
-			current = ensureContainer(
-				current,
-				part.index,
-				isNextPartArrayChain ? "array" : "object"
-			);
-		}
-	}
-
-	return current;
-}
-
-/**
- * @param {Record<string, unknown> | Array<unknown>} parent
- * @param {string | number} key
- * @param {'array' | 'object'} type
- * @returns {Record<string, unknown> | Array<unknown>}
- */
-function ensureContainer(parent, key, type) {
-	// Casting should be fine here - callers should have the logic
-	// to use the correct key
-	const existing = /** @type {Record<string | number, unknown>} */ (parent)[key];
-
-	if (type === "array" && Array.isArray(existing)) {
-		return existing;
-	}
-
-	if (type === "object" && isObject(existing)) {
-		return existing;
-	}
-
-	const newContainer = type === "array" ? [] : {};
-
-	if (Array.isArray(parent) && typeof key === "number") {
-		while (parent.length < key) {
-			parent.push(null);
-		}
-
-		if (key >= parent.length) {
-			parent.push(newContainer);
-		} else {
-			parent[key] = newContainer;
-		}
-	} else {
-		// `parent` is always going to be an object here regardless, TS just doesn't like
-		// the union type used
-		/** @type {Record<string, unknown>} */ (parent)[key] = newContainer;
-	}
-
-	return newContainer;
-}
-
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isObject(value) {
-	return typeof value === "object" && !Array.isArray(value) && value !== null;
-}
-
-/**
- * Safely retrieves a value from the root object using a KeyPath.
- * Returns undefined if any part of the path does not exist or
- * if the structure does not match (e.g. expecting an array but found an object).
- * @param {Record<string, unknown> | Array<unknown>} root - The data structure to traverse
- * @param {KeyPath} path - The parsed KeyPath object
- * @returns {unknown | undefined}
- */
-export function getValueAtPath(root, path) {
-	let current = root;
-
-	for (const part of path.parts) {
-		if (part.key) {
-			if (!isObject(current)) {
-				return undefined;
-			}
-
-			current = /** @type {Record<string, unknown>} */ (current[part.key]);
-		}
-
-		if (current === undefined) {
-			return undefined;
-		}
-
-		if (part.index !== null) {
-			if (!Array.isArray(current)) {
-				return undefined;
-			}
-
-			current = /** @type {Array<unknown>} */ (current[part.index]);
-		}
-
-		if (current === undefined) {
-			return undefined;
-		}
-	}
-
-	return current;
 }

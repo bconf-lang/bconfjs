@@ -1,14 +1,14 @@
-/** @import { KeyPart } from './types.js' */
+/** @import { Container, KeyPart } from './types.js' */
 
 import { KeyPath } from "./values.js";
 
 /**
  * @param {Record<string, unknown>} root
  * @param {Array<KeyPart>} key
- * @returns {Array<unknown> | Record<string, unknown>}
+ * @returns {Container}
  */
 export function getParentForKey(root, key) {
-	/** @type {Array<unknown> | Record<string, unknown>} */
+	/** @type {Container} */
 	let current = root;
 
 	for (let i = 0; i < key.length; i++) {
@@ -44,15 +44,13 @@ export function getParentForKey(root, key) {
 }
 
 /**
- * @param {Record<string, unknown> | Array<unknown>} parent
+ * @param {Container} parent
  * @param {string | number} key
  * @param {'array' | 'object'} type
- * @returns {Record<string, unknown> | Array<unknown>}
+ * @returns {Container}
  */
 function ensureContainer(parent, key, type) {
-	// Casting should be fine here - callers should have the logic
-	// to use the correct key
-	const existing = /** @type {Record<string | number, unknown>} */ (parent)[key];
+	const existing = /** @type {Container} */ (parent[key]);
 
 	if (type === "array" && Array.isArray(existing)) {
 		return existing;
@@ -75,9 +73,7 @@ function ensureContainer(parent, key, type) {
 			parent[key] = newContainer;
 		}
 	} else {
-		// `parent` is always going to be an object here regardless, TS just doesn't like
-		// the union type used
-		/** @type {Record<string, unknown>} */ (parent)[key] = newContainer;
+		parent[key] = newContainer;
 	}
 
 	return newContainer;

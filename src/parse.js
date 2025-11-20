@@ -543,10 +543,18 @@ class Parser {
 				throw new Error("Somehow ended up with an empty key....");
 			}
 
+			const keyToUse = lastKey.index ?? lastKey.key;
 			const operator = this.parseOperator(stopToken);
 			switch (operator) {
 				case "append": {
-					// TODO
+					const parent = getParentForKey(root, key);
+					let targetArray = /** @type {Array<unknown>} */ (parent[keyToUse]);
+					if (!Array.isArray(targetArray)) {
+						targetArray = [];
+						parent[keyToUse] = targetArray;
+					}
+
+					targetArray.push(this.parseValue());
 					break;
 				}
 				case "assign":
@@ -554,12 +562,7 @@ class Parser {
 				case "true-shorthand": {
 					const parent = getParentForKey(root, key);
 					const value = operator === "true-shorthand" ? true : this.parseValue();
-					const keyToUse = lastKey.index ?? lastKey.key;
-
-					// Typecasting parent here should be fine. Its going to be an array or object
-					// anyways, and will use the correct key (number for array index if it exists,
-					// otherwise a the key value)
-					/** @type {Record<string | number, unknown>} */ (parent)[keyToUse] = value;
+					parent[keyToUse] = value;
 					break;
 				}
 				case "statement": {

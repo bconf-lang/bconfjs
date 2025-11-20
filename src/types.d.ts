@@ -65,3 +65,7 @@ export type ParsedNumber = {
 	type: "integer" | "float";
 	value: number;
 };
+
+// Represents a node in the config tree that can hold children.
+// Essentially its a union of an array and object, but typed to allow flexible access.
+export type Container = Record<string | number, unknown>;

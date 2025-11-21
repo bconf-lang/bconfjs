@@ -30,7 +30,7 @@ export type TagResolverArgs = {
 export type StatementResolver = (
 	args: Array<Value>,
 	context: StatementResolverContext
-) => StatementAction;
+) => Promise<StatementAction>;
 
 export type StatementResolverContext = {
 	// Record of environment variables
@@ -39,7 +39,7 @@ export type StatementResolverContext = {
 	variables: { readonly [variable: string]: Value };
 	// Load a file at the given path. This will return an empty string if no file
 	// can be resolved at the path
-	loadFile: (path: string) => string;
+	loadFile: (path: string, opts?: FileLoaderFetchOptions) => Promise<string>;
 	// Add a variable to the document being parsed, returning false if the variable
 	// could not be added for whatever reason
 	declareVariable: (
@@ -60,12 +60,12 @@ export type StatementResolverContext = {
 	) => boolean;
 
 	// Parse a given file
-	parse: (input: string) => {
+	parse: (input: string) => Promise<{
 		// The resolved data of the file
 		data: Record<string, Value>;
 		// Variables exported from the file
 		variables: Record<string, Value>;
-	};
+	}>;
 };
 
 export type StatementAction = {
@@ -90,6 +90,27 @@ export type ParseOptions = {
 	// this is `process.env` on non-browser environments and `window`
 	// for browsers
 	env?: Record<string, unknown>;
+	// Root file path. For browsers, this is `/`, for non browsers
+	// it is the current working directory
+	root?: string;
+	// A function to load files with for statements such as extends and import.
+	// A default will be loaded based on the environment. For browsers, this will
+	// fetch it based on the current url, and non browser environments
+	// will read on the device
+	fileLoader?: FileLoader;
+};
+
+export type FileLoader = (
+	root: string,
+	path: string,
+	opts?: FileLoaderFetchOptions
+) => Promise<string>;
+
+export type FileLoaderFetchOptions = Omit<RequestInit, "signal"> & {
+	// The abort controller to use
+	controller?: AbortController;
+	// Time in milliseconds for how long the fetch should occur
+	timeout?: number;
 };
 
 export type KeyPart = {

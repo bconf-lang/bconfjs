@@ -1,5 +1,5 @@
 /**
- * @import { KeyPart, Operator, ParsedNumber, ParseOptions, TagResolver, Value, StatementAction, StatementResolver, StatementResolverContext } from './types.js'
+ * @import { KeyPart, Operator, ParsedNumber, ParseOptions, TagResolver, Value, StatementAction, StatementResolver, StatementResolverContext, FileLoader } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
@@ -28,6 +28,7 @@ export function parse(input, opts) {
 }
 
 const browser = typeof window !== "undefined";
+const defaultLoader = await (browser ? import("./browser/files.js") : import("./node/files.js"));
 
 class Parser {
 	/** @type {Array<Token>} */ tokens;
@@ -42,6 +43,8 @@ class Parser {
 	env = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
 	/** @type {Record<string, Value>} */ variables = {};
 	/** @type {Record<string, Value>} */ exportedVariables = {};
+	/** @type {FileLoader} */ fileLoader = defaultLoader.resolveFile;
+	/** @type {string} */ rootFilePath = browser ? "/" : import.meta.dirname;
 
 	/**
 	 * @param {string} input The file to parse
@@ -56,6 +59,20 @@ class Parser {
 			for (const tag of opts.tags) {
 				this.tagResolvers.set(tag.name, tag.resolver);
 			}
+		}
+
+		if (opts?.statements) {
+			for (const statement of opts.statements) {
+				this.statementResolvers.set(statement.name, statement.resolver);
+			}
+		}
+
+		if (opts?.root) {
+			this.rootFilePath = opts.root;
+		}
+
+		if (opts?.fileLoader) {
+			this.fileLoader = opts.fileLoader;
 		}
 
 		this.pos = 0;
@@ -92,9 +109,9 @@ class Parser {
 	}
 
 	/**
-	 * @returns {KeyPart}
+	 * @returns {Promise<KeyPart>}
 	 */
-	parseKeyLiteral() {
+	async parseKeyLiteral() {
 		if (!this.currToken.literal) {
 			throw new Error("The literal should not be null when parsing a key part");
 		}
@@ -120,7 +137,7 @@ class Parser {
 				break;
 			case TokenType.DOUBLE_QUOTE:
 				part.type = "string";
-				part.key = this.parseString();
+				part.key = await this.parseString();
 				break;
 			default:
 				throw new Error("Unexpected key type");
@@ -158,12 +175,12 @@ class Parser {
 	}
 
 	/**
-	 * @returns {Array<KeyPart>}
+	 * @returns {Promise<Array<KeyPart>>}
 	 */
-	parseKeySegment() {
+	async parseKeySegment() {
 		const parts = [];
 
-		let currentPart = this.parseKeyLiteral();
+		let currentPart = await this.parseKeyLiteral();
 
 		// Account for multi-dimensional arrays (eg. `foo.bar[0][0]`) which
 		// have multiple array indexes
@@ -188,16 +205,16 @@ class Parser {
 	}
 
 	/**
-	 * @returns {KeyPath}
+	 * @returns {Promise<KeyPath>}
 	 */
-	parseKey() {
+	async parseKey() {
 		/** @type {Array<KeyPart>} */
 		const parts = [];
 
-		parts.push(...this.parseKeySegment());
+		parts.push(...(await this.parseKeySegment()));
 		while (this.currToken.type === TokenType.DOT) {
 			this.advance();
-			parts.push(...this.parseKeySegment());
+			parts.push(...(await this.parseKeySegment()));
 		}
 
 		return new KeyPath(parts);
@@ -253,6 +270,7 @@ class Parser {
 			case TokenType.LBRACKET:
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
+				// Don't advance since its an actual value and should be handled by their own parsing methods
 				return "statement";
 			default:
 				throw new Error("Unexpected token as operator");
@@ -261,9 +279,9 @@ class Parser {
 
 	/**
 	 * @param {string} stopToken
-	 * @returns {Array<Value>}
+	 * @returns {Promise<Array<Value>>}
 	 */
-	parseStatementArgs(stopToken) {
+	async parseStatementArgs(stopToken) {
 		/** @type {Array<Value>} */
 		const values = [];
 
@@ -275,7 +293,7 @@ class Parser {
 			// how the comma should be handled (throw or consume)
 			this.currToken.type !== TokenType.COMMA
 		) {
-			const parsed = this.parseValue(true, true);
+			const parsed = await this.parseValue(true, true);
 			if (parsed instanceof KeyPath) {
 				throw new Error("Somehow ended up with a key path as a value in a statement");
 			}
@@ -289,9 +307,9 @@ class Parser {
 	/**
 	 * @param {KeyPath} key
 	 * @param {Array<Value>} args
-	 * @returns {StatementAction}
+	 * @returns {Promise<StatementAction>}
 	 */
-	resolveStatement(key, args) {
+	async resolveStatement(key, args) {
 		// TODO: Create robust way to define/lookup complex statement keys? (eg. `foo.bar`, `foo[0].bar`)
 		const resolver = this.statementResolvers.get(key.parts[0].key);
 		if (!resolver) {
@@ -302,8 +320,7 @@ class Parser {
 		const context = {
 			env: this.env,
 			variables: this.variables,
-			// TODO
-			loadFile: (path) => "",
+			loadFile: (path, opts) => this.fileLoader(this.rootFilePath, path, opts),
 			declareVariable: (name, value, args) => {
 				// Ensuring the name is always just `$foo` and not something
 				// like `$foo.bar`. Any nested values should be part of `value`
@@ -336,14 +353,14 @@ class Parser {
 
 				return true;
 			},
-			parse: (input) => {
+			parse: async (input) => {
 				const parser = new Parser(input);
-				parser.parse();
+				await parser.parse();
 				return { data: parser.result, variables: parser.exportedVariables };
 			},
 		};
 
-		const action = resolver(args, context);
+		const action = await resolver(args, context);
 		return action;
 	}
 
@@ -384,9 +401,9 @@ class Parser {
 	}
 
 	/**
-	 * @returns {string}
+	 * @returns {Promise<string>}
 	 */
-	parseEmbeddedValue() {
+	async parseEmbeddedValue() {
 		this.advance(); // Consume `${`
 
 		if (!this.currToken.literal) {
@@ -398,7 +415,7 @@ class Parser {
 		switch (this.currToken.type) {
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
-				value = this.parseString();
+				value = await this.parseString();
 				break;
 			case TokenType.VARIABLE:
 				// TODO: resolve variable value
@@ -407,7 +424,7 @@ class Parser {
 				break;
 			case TokenType.IDENTIFIER:
 				if (this.isTag()) {
-					const parsed = this.parseTag();
+					const parsed = await this.parseTag();
 					if (parsed instanceof Tag) {
 						throw new Error("Cannot have unresolved tag in embedded value");
 					}
@@ -474,7 +491,7 @@ class Parser {
 		}
 	}
 
-	parseString() {
+	async parseString() {
 		const boundary = this.currToken.type;
 		this.advance(); // Consume `"` or `"""`
 
@@ -486,7 +503,7 @@ class Parser {
 					this.advance();
 					break;
 				case TokenType.EMBEDDED_VALUE_START:
-					resolved += this.parseEmbeddedValue();
+					resolved += await this.parseEmbeddedValue();
 					break;
 				case TokenType.ESCAPE_SEQUENCE:
 					resolved += this.parseEscapedValue();
@@ -505,7 +522,7 @@ class Parser {
 		return resolved;
 	}
 
-	parseTag() {
+	async parseTag() {
 		if (!this.currToken.literal) {
 			throw new Error("Unexpected empty tag name");
 		}
@@ -518,7 +535,7 @@ class Parser {
 		}
 		this.advance(); // Consume `(`
 
-		let value = this.parseValue(true);
+		let value = await this.parseValue(true);
 		const resolver = this.tagResolvers.get(tagName);
 		if (resolver) {
 			value = resolver(value, {
@@ -538,12 +555,12 @@ class Parser {
 		return resolver ? value : new Tag(tagName, value);
 	}
 
-	parseObject() {
+	async parseObject() {
 		this.advance(); // Consume `{`
 
 		/** @type {Record<string, unknown>} */
 		const obj = {};
-		this.parseBlock(TokenType.RBRACE, obj);
+		await this.parseBlock(TokenType.RBRACE, obj);
 		if (this.currToken.type !== TokenType.RBRACE) {
 			throw new Error("Expected closing brace '}' for object");
 		}
@@ -552,7 +569,7 @@ class Parser {
 		return obj;
 	}
 
-	parseArray() {
+	async parseArray() {
 		this.advance(); // Consume `[`
 
 		/** @type {Array<unknown>} */
@@ -574,7 +591,7 @@ class Parser {
 				break;
 			}
 
-			arr.push(this.parseValue());
+			arr.push(await this.parseValue());
 
 			if (this.currToken.type === TokenType.COMMA) {
 				this.advance();
@@ -594,11 +611,11 @@ class Parser {
 	 * @param {boolean=} strictKeys
 	 * @returns {Value | KeyPath}
 	 */
-	parseValue(allowBareKeys = false, strictKeys = false) {
+	async parseValue(allowBareKeys = false, strictKeys = false) {
 		switch (this.currToken.type) {
 			case TokenType.IDENTIFIER: {
 				if (this.isTag()) {
-					return this.parseTag();
+					return await this.parseTag();
 				}
 
 				if (looksLikeNumber(this.currToken)) {
@@ -606,7 +623,7 @@ class Parser {
 				}
 
 				if (allowBareKeys) {
-					return strictKeys ? this.parseStrictIdentifier() : this.parseKey();
+					return strictKeys ? this.parseStrictIdentifier() : await this.parseKey();
 				}
 
 				throw new Error(
@@ -622,12 +639,12 @@ class Parser {
 				return value;
 			}
 			case TokenType.LBRACE:
-				return this.parseObject();
+				return await this.parseObject();
 			case TokenType.LBRACKET:
-				return this.parseArray();
+				return await this.parseArray();
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
-				return this.parseString();
+				return await this.parseString();
 			case TokenType.VARIABLE: {
 				// TODO: Resolve variable values
 				const variable = this.currToken.literal;
@@ -643,7 +660,7 @@ class Parser {
 	 * @param {string} stopToken
 	 * @param {Record<string, unknown>} root
 	 */
-	parseBlock(stopToken, root) {
+	async parseBlock(stopToken, root) {
 		// Determine if commas are allowed based on context
 		const isRoot = stopToken === TokenType.EOF;
 
@@ -658,7 +675,7 @@ class Parser {
 				break;
 			}
 
-			const key = this.parseKey();
+			const key = await this.parseKey();
 			const lastKey = key.parts[key.parts.length - 1];
 			if (lastKey.index === null && !lastKey.key) {
 				throw new Error("Somehow ended up with an empty key....");
@@ -673,7 +690,7 @@ class Parser {
 				operator === "true-shorthand"
 			) {
 				const parent = getParentForKey(root, key);
-				const value = operator === "true-shorthand" ? true : this.parseValue();
+				const value = operator === "true-shorthand" ? true : await this.parseValue();
 				parent[keyToUse] = value;
 			}
 			//
@@ -685,12 +702,12 @@ class Parser {
 					parent[keyToUse] = targetArray;
 				}
 
-				targetArray.push(this.parseValue());
+				targetArray.push(await this.parseValue());
 			}
 			//
 			else if (operator === "statement") {
-				const args = this.parseStatementArgs(stopToken);
-				const resolved = this.resolveStatement(key, args);
+				const args = await this.parseStatementArgs(stopToken);
+				const resolved = await this.resolveStatement(key, args);
 				switch (resolved.action) {
 					case "push": {
 						const parent = getParentForKey(root, key);
@@ -726,10 +743,10 @@ class Parser {
 	}
 
 	/**
-	 * @returns {Record<string, unknown>}
+	 * @returns {Promise<Record<string, unknown>>}
 	 */
-	parse() {
-		this.parseBlock(TokenType.EOF, this.result);
+	async parse() {
+		await this.parseBlock(TokenType.EOF, this.result);
 		return /** @type {Record<string, unknown>} */ (unwrap(this.result));
 	}
 }

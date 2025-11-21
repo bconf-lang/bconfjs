@@ -159,7 +159,7 @@ export const BUILT_IN_STATEMENT_RESOLVERS = new Map([
 ]);
 
 /** @type {StatementResolver} */
-function importResolver(args, context) {
+async function importResolver(args, context) {
 	if (args[0] !== "from") {
 		throw new Error('Must follow syntax `import from "path/to/file" { ... }`');
 	}
@@ -172,13 +172,9 @@ function importResolver(args, context) {
 		throw new Error("Cannot have empty file path");
 	}
 
-	const file = context.loadFile(filePath);
-	if (!file) {
-		throw new Error("Could not resolve file at path");
-	}
-
+	const file = await context.loadFile(filePath);
 	// TODO: Cache resolved values/variables to avoid parsing every time
-	const { variables } = context.parse(file);
+	const { variables } = await context.parse(file);
 
 	const instructions = args[2];
 	if (!isObject(instructions)) {
@@ -231,8 +227,10 @@ function importResolver(args, context) {
 	return { action: "discard" };
 }
 
-/** @type {StatementResolver} */
-function exportResolver(args, context) {
+/**
+ * @type {StatementResolver}
+ */
+async function exportResolver(args, context) {
 	if (args[0] !== "vars") {
 		throw new Error("Must follow syntax `export vars { ... }`");
 	}
@@ -266,16 +264,12 @@ function exportResolver(args, context) {
 }
 
 /** @type {StatementResolver} */
-function extendsResolver(args, context) {
+async function extendsResolver(args, context) {
 	if (typeof args[0] !== "string") {
 		throw new Error("Must have string as the argument");
 	}
 
-	const file = context.loadFile(args[0]);
-	if (!file) {
-		throw new Error("Could not resolve file at path");
-	}
-
-	const { data } = context.parse(file);
+	const file = await context.loadFile(args[0]);
+	const { data } = await context.parse(file);
 	return { action: "merge", value: data };
 }

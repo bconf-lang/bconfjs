@@ -1,5 +1,6 @@
 /** @import { Container, KeyPart } from './types.js' */
 
+import { Token } from "./lexer.js";
 import { KeyPath } from "./values.js";
 
 /**
@@ -152,4 +153,17 @@ export function validateAndParseNumber(input) {
 	}
 
 	return value;
+}
+
+/**
+ * Helper to check if a token looks like the start of a number
+ * (Digits, +, or -)
+ * @param {Token} token
+ */
+export function looksLikeNumber(token) {
+	if (!token.literal || token.literal.length === 0) {
+		return false;
+	}
+	const firstChar = token.literal.charAt(0);
+	return (firstChar >= "0" && firstChar <= "9") || firstChar === "-" || firstChar === "+";
 }

@@ -5,7 +5,12 @@
 
 import { Keywords, tokenize, TokenType } from "./lexer.js";
 import { BUILT_IN_TAG_RESOLVERS } from "./resolvers.js";
-import { getParentForKey, getValueAtPath, validateAndParseNumber } from "./utils.js";
+import {
+	getParentForKey,
+	getValueAtPath,
+	looksLikeNumber,
+	validateAndParseNumber,
+} from "./utils.js";
 import { KeyPath, Tag } from "./values.js";
 
 const EXPONENT_REGEX = /[eE]/;
@@ -155,7 +160,7 @@ class Parser {
 
 		// Account for multi-dimensional arrays (eg. `foo.bar[0][0]`) which
 		// have multiple array indexes
-		while (this.currToken.type === TokenType.LBRACKET) {
+		while (this.currToken.type === TokenType.INDEX_LBRACKET) {
 			const index = this.parseArrayIndex();
 
 			// First array index, so it should be attached directly to the key.
@@ -192,6 +197,27 @@ class Parser {
 	}
 
 	/**
+	 * @returns {string}
+	 */
+	parseStrictIdentifier() {
+		if (!this.currToken.literal) {
+			throw new Error("Unexpected empty literal");
+		}
+
+		const value = this.currToken.literal;
+		this.advance();
+
+		if (this.currToken.type === TokenType.DOT) {
+			throw new Error("Dotted keys are not allowed in this context");
+		}
+		if (this.currToken.type === TokenType.INDEX_LBRACKET) {
+			throw new Error("Array accessors are not allowed in this context");
+		}
+
+		return value;
+	}
+
+	/**
 	 * @param {string} stopToken
 	 * @returns {Operator}
 	 */
@@ -220,14 +246,33 @@ class Parser {
 			case TokenType.LBRACKET:
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
-				this.advance();
 				return "statement";
 			default:
 				throw new Error("Unexpected token as operator");
 		}
 	}
 
-	parseStatement() {}
+	/**
+	 * @param {string} stopToken
+	 * @returns {Array<Value>}
+	 */
+	parseStatement(stopToken) {
+		/** @type {Array<Value>} */
+		const values = [];
+
+		while (
+			this.currToken.type !== TokenType.NEWLINE &&
+			this.currToken.type !== TokenType.EOF &&
+			this.currToken.type !== stopToken &&
+			// Ensuring that controls is always handed back to parseBlock to determine
+			// how the comma should be handled (throw or consume)
+			this.currToken.type !== TokenType.COMMA
+		) {
+			values.push(this.parseValue(true, true));
+		}
+
+		return values;
+	}
 
 	/**
 	 * @returns {ParsedNumber}
@@ -472,9 +517,10 @@ class Parser {
 
 	/**
 	 * @param {boolean=} allowBareKeys
+	 * @param {boolean=} strictKeys
 	 * @returns {Value}
 	 */
-	parseValue(allowBareKeys = false) {
+	parseValue(allowBareKeys = false, strictKeys = false) {
 		switch (this.currToken.type) {
 			case TokenType.IDENTIFIER: {
 				if (this.isTag()) {
@@ -482,16 +528,12 @@ class Parser {
 					return tagValue instanceof Tag ? tagValue.serialize() : tagValue;
 				}
 
-				const firstChar = this.currToken.literal ? this.currToken.literal[0] : "";
-				const isDigit = firstChar >= "0" && firstChar <= "9";
-				const isSign = firstChar === "-" || firstChar === "+";
-
-				if (isDigit || isSign) {
+				if (looksLikeNumber(this.currToken)) {
 					return this.parseNumber().value;
 				}
 
 				if (allowBareKeys) {
-					return this.parseKey();
+					return strictKeys ? this.parseStrictIdentifier() : this.parseKey();
 				}
 
 				throw new Error(
@@ -513,6 +555,12 @@ class Parser {
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
 				return this.parseString();
+			case TokenType.VARIABLE: {
+				// TODO: Resolve variable values
+				const variable = this.currToken.literal;
+				this.advance();
+				return variable;
+			}
 			default:
 				throw new Error("Unexpected token for value");
 		}
@@ -546,7 +594,8 @@ class Parser {
 			const keyToUse = lastKey.index ?? lastKey.key;
 			const operator = this.parseOperator(stopToken);
 			switch (operator) {
-				case "append": {
+				case "append":
+				case "statement": {
 					const parent = getParentForKey(root, key);
 					let targetArray = /** @type {Array<unknown>} */ (parent[keyToUse]);
 					if (!Array.isArray(targetArray)) {
@@ -554,7 +603,12 @@ class Parser {
 						parent[keyToUse] = targetArray;
 					}
 
-					targetArray.push(this.parseValue());
+					// TODO: Add statement resolvers
+					targetArray.push(
+						operator === "statement"
+							? this.parseStatement(stopToken)
+							: this.parseValue()
+					);
 					break;
 				}
 				case "assign":
@@ -563,10 +617,6 @@ class Parser {
 					const parent = getParentForKey(root, key);
 					const value = operator === "true-shorthand" ? true : this.parseValue();
 					parent[keyToUse] = value;
-					break;
-				}
-				case "statement": {
-					// TODO:
 					break;
 				}
 			}

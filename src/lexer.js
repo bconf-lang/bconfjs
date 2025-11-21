@@ -23,6 +23,7 @@ export const TokenType = {
 	// Identifiers & Variables
 	IDENTIFIER: "IDENTIFIER", // For keys, tags, numbers and unquoted statement values
 	VARIABLE: "VARIABLE",
+	INDEX_LBRACKET: "INDEX_LBRACKET", // [ for denoting the start of an array index
 
 	// Operators & Delimiters
 	ASSIGN: "ASSIGN", // =
@@ -97,6 +98,7 @@ export class Lexer {
 	/** @type {LexerContext[]} */ contextStack = [
 		{ mode: LexerMode.DEFAULT, stringType: StringType.OFF },
 	];
+	/** @type {Token | null} */ lastToken = null;
 
 	/**
 	 * @param {string} input
@@ -292,7 +294,7 @@ export class Lexer {
 	/**
 	 * @returns {Token}
 	 */
-	next() {
+	readToken() {
 		const char = this.peek();
 		const col = this.column;
 
@@ -343,7 +345,18 @@ export class Lexer {
 				return new Token(TokenType.RPAREN, ")", this.row, col);
 			case "[":
 				this.advance();
-				return new Token(TokenType.LBRACKET, "[", this.row, col);
+				return new Token(
+					// This just makes it easier to differentiate array indexes from regular arrays
+					// primarily in statements where having a single token is ambiguous when whitespace
+					// is filtered out
+					this.lastToken?.type === TokenType.IDENTIFIER ||
+					this.lastToken?.type === TokenType.VARIABLE
+						? TokenType.INDEX_LBRACKET
+						: TokenType.LBRACKET,
+					"[",
+					this.row,
+					col
+				);
 			case "]":
 				this.advance();
 				return new Token(TokenType.RBRACKET, "]", this.row, col);
@@ -412,6 +425,15 @@ export class Lexer {
 				this.advance();
 				return new Token(TokenType.ILLEGAL, char, this.row, col);
 		}
+	}
+
+	/**
+	 * @returns {Token}
+	 */
+	next() {
+		const token = this.readToken();
+		this.lastToken = token;
+		return token;
 	}
 
 	/**

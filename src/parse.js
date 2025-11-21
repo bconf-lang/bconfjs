@@ -1,17 +1,19 @@
 /**
- * @import { KeyPart, Operator, ParsedNumber, ParseOptions, TagResolver, Value } from './types.js'
+ * @import { KeyPart, Operator, ParsedNumber, ParseOptions, TagResolver, Value, StatementAction, StatementResolver, StatementResolverContext } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
 import { Keywords, tokenize, TokenType } from "./lexer.js";
-import { BUILT_IN_TAG_RESOLVERS } from "./resolvers.js";
+import { BUILT_IN_STATEMENT_RESOLVERS, BUILT_IN_TAG_RESOLVERS } from "./resolvers.js";
 import {
+	deepMerge,
 	getParentForKey,
 	getValueAtPath,
+	isObject,
 	looksLikeNumber,
 	validateAndParseNumber,
 } from "./utils.js";
-import { KeyPath, Tag } from "./values.js";
+import { KeyPath, Statement, Tag } from "./values.js";
 
 const EXPONENT_REGEX = /[eE]/;
 
@@ -31,10 +33,15 @@ class Parser {
 	/** @type {Array<Token>} */ tokens;
 	/** @type {Token} */ currToken;
 	/** @type {number} */ pos;
-	/** @type {Record<string, unknown>} */ result = {};
+	/** @type {Record<string, Value>} */ result = {};
 
+	/** @type {Map<string, StatementResolver>} */ statementResolvers = new Map(
+		BUILT_IN_STATEMENT_RESOLVERS
+	);
 	/** @type {Map<string, TagResolver>} */ tagResolvers = new Map(BUILT_IN_TAG_RESOLVERS);
 	env = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
+	/** @type {Record<string, Value>} */ variables = {};
+	/** @type {Record<string, Value>} */ exportedVariables = {};
 
 	/**
 	 * @param {string} input The file to parse
@@ -256,7 +263,7 @@ class Parser {
 	 * @param {string} stopToken
 	 * @returns {Array<Value>}
 	 */
-	parseStatement(stopToken) {
+	parseStatementArgs(stopToken) {
 		/** @type {Array<Value>} */
 		const values = [];
 
@@ -268,10 +275,76 @@ class Parser {
 			// how the comma should be handled (throw or consume)
 			this.currToken.type !== TokenType.COMMA
 		) {
-			values.push(this.parseValue(true, true));
+			const parsed = this.parseValue(true, true);
+			if (parsed instanceof KeyPath) {
+				throw new Error("Somehow ended up with a key path as a value in a statement");
+			}
+
+			values.push(parsed);
 		}
 
 		return values;
+	}
+
+	/**
+	 * @param {KeyPath} key
+	 * @param {Array<Value>} args
+	 * @returns {StatementAction}
+	 */
+	resolveStatement(key, args) {
+		// TODO: Create robust way to define/lookup complex statement keys? (eg. `foo.bar`, `foo[0].bar`)
+		const resolver = this.statementResolvers.get(key.parts[0].key);
+		if (!resolver) {
+			return { action: "push", value: args };
+		}
+
+		/** @type {StatementResolverContext} */
+		const context = {
+			env: this.env,
+			variables: this.variables,
+			// TODO
+			loadFile: (path) => "",
+			declareVariable: (name, value, args) => {
+				// Ensuring the name is always just `$foo` and not something
+				// like `$foo.bar`. Any nested values should be part of `value`
+				// already, and merging of existing values should be handled by the resolver
+				if (
+					!name.startsWith("$") ||
+					name.includes(".") ||
+					name.includes("[") ||
+					name.includes("]")
+				) {
+					return false;
+				}
+
+				// TODO: Account for args.scope
+				if (!args?.exportOnly) {
+					if (name in this.variables && !args?.override) {
+						return false;
+					}
+
+					this.variables[name] = value;
+				}
+
+				if (args?.export) {
+					if (name in this.exportedVariables && !args?.override) {
+						return false;
+					}
+
+					this.exportedVariables[name] = value;
+				}
+
+				return true;
+			},
+			parse: (input) => {
+				const parser = new Parser(input);
+				parser.parse();
+				return { data: parser.result, variables: parser.exportedVariables };
+			},
+		};
+
+		const action = resolver(args, context);
+		return action;
 	}
 
 	/**
@@ -329,7 +402,8 @@ class Parser {
 				break;
 			case TokenType.VARIABLE:
 				// TODO: resolve variable value
-				value = "";
+				value = this.currToken.literal;
+				this.advance();
 				break;
 			case TokenType.IDENTIFIER:
 				if (this.isTag()) {
@@ -518,14 +592,13 @@ class Parser {
 	/**
 	 * @param {boolean=} allowBareKeys
 	 * @param {boolean=} strictKeys
-	 * @returns {Value}
+	 * @returns {Value | KeyPath}
 	 */
 	parseValue(allowBareKeys = false, strictKeys = false) {
 		switch (this.currToken.type) {
 			case TokenType.IDENTIFIER: {
 				if (this.isTag()) {
-					const tagValue = this.parseTag();
-					return tagValue instanceof Tag ? tagValue.serialize() : tagValue;
+					return this.parseTag();
 				}
 
 				if (looksLikeNumber(this.currToken)) {
@@ -585,39 +658,64 @@ class Parser {
 				break;
 			}
 
-			const key = this.parseKey().parts;
-			const lastKey = key[key.length - 1];
+			const key = this.parseKey();
+			const lastKey = key.parts[key.parts.length - 1];
 			if (lastKey.index === null && !lastKey.key) {
 				throw new Error("Somehow ended up with an empty key....");
 			}
 
 			const keyToUse = lastKey.index ?? lastKey.key;
 			const operator = this.parseOperator(stopToken);
-			switch (operator) {
-				case "append":
-				case "statement": {
-					const parent = getParentForKey(root, key);
-					let targetArray = /** @type {Array<unknown>} */ (parent[keyToUse]);
-					if (!Array.isArray(targetArray)) {
-						targetArray = [];
-						parent[keyToUse] = targetArray;
-					}
 
-					// TODO: Add statement resolvers
-					targetArray.push(
-						operator === "statement"
-							? this.parseStatement(stopToken)
-							: this.parseValue()
-					);
-					break;
+			if (
+				operator === "assign" ||
+				operator === "object-shorthand" ||
+				operator === "true-shorthand"
+			) {
+				const parent = getParentForKey(root, key);
+				const value = operator === "true-shorthand" ? true : this.parseValue();
+				parent[keyToUse] = value;
+			}
+			//
+			else if (operator === "append") {
+				const parent = getParentForKey(root, key);
+				let targetArray = /** @type {Array<unknown>} */ (parent[keyToUse]);
+				if (!Array.isArray(targetArray)) {
+					targetArray = [];
+					parent[keyToUse] = targetArray;
 				}
-				case "assign":
-				case "object-shorthand":
-				case "true-shorthand": {
-					const parent = getParentForKey(root, key);
-					const value = operator === "true-shorthand" ? true : this.parseValue();
-					parent[keyToUse] = value;
-					break;
+
+				targetArray.push(this.parseValue());
+			}
+			//
+			else if (operator === "statement") {
+				const args = this.parseStatementArgs(stopToken);
+				const resolved = this.resolveStatement(key, args);
+				switch (resolved.action) {
+					case "push": {
+						const parent = getParentForKey(root, key);
+						let targetStatement = /** @type {Statement} */ (parent[keyToUse]);
+						if (!(targetStatement instanceof Statement)) {
+							targetStatement = new Statement(key, []);
+							parent[keyToUse] = targetStatement;
+						}
+
+						if (resolved.value) {
+							targetStatement.args.push(resolved.value);
+						}
+						break;
+					}
+					case "merge": {
+						if (!isObject(resolved.value)) {
+							throw new Error("Cannot merge non object values into current document");
+						}
+
+						deepMerge(root, resolved.value);
+						break;
+					}
+					// Nothing to do if the action is "discard"
+					default:
+						break;
 				}
 			}
 
@@ -632,6 +730,45 @@ class Parser {
 	 */
 	parse() {
 		this.parseBlock(TokenType.EOF, this.result);
-		return this.result;
+		return /** @type {Record<string, unknown>} */ (unwrap(this.result));
 	}
+}
+
+/**
+ * Unwrap internal types (Statement, Tag, KeyPath) into their
+ * serializable forms (arrays, tuples, strings, etc)
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function unwrap(value) {
+	if (value instanceof Statement) {
+		// Argument values might contain internal types (ie. Tag)
+		// which also need to be unwrapped
+		return unwrap(value.args);
+	}
+
+	if (value instanceof Tag) {
+		// The value inside the tag might need serialization too
+		return [value.name, unwrap(value.arg)];
+	}
+
+	if (value instanceof KeyPath) {
+		// KeyPaths become strings "foo.bar[0]"
+		return value.serialize();
+	}
+
+	if (Array.isArray(value)) {
+		return value.map(unwrap);
+	}
+
+	if (isObject(value)) {
+		/** @type {Record<string, unknown>} */
+		const out = {};
+		for (const [k, v] of Object.entries(value)) {
+			out[k] = unwrap(v);
+		}
+		return out;
+	}
+
+	return value;
 }

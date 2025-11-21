@@ -1,4 +1,4 @@
-/** @import { KeyPart } from './types.js' */
+/** @import { KeyPart, Value } from './types.js' */
 
 export class KeyPath {
 	/** @param {Array<KeyPart>} parts */
@@ -28,7 +28,7 @@ export class KeyPath {
 export class Tag {
 	/**
 	 * @param {string} name
-	 * @param {unknown} arg
+	 * @param {Value} arg
 	 */
 	constructor(name, arg) {
 		this.name = name;
@@ -37,5 +37,16 @@ export class Tag {
 
 	serialize() {
 		return [this.name, this.arg];
+	}
+}
+
+export class Statement {
+	/**
+	 * @param {KeyPath} name
+	 * @param {Array<Value>} args
+	 */
+	constructor(name, args) {
+		this.name = name;
+		this.args = args;
 	}
 }

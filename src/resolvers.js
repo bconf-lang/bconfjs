@@ -1,10 +1,13 @@
 /**
- * @import { TagResolver } from './types.js'
+ * @import { TagResolver, StatementResolver, Value } from './types.js'
  */
 
-import { validateAndParseNumber } from "./utils.js";
-import { KeyPath } from "./values.js";
+import { isObject, validateAndParseNumber } from "./utils.js";
+import { KeyPath, Statement } from "./values.js";
 
+// -------------------------
+// TAG RESOLVERS
+// -------------------------
 /** @type {Map<string, TagResolver>} */
 export const BUILT_IN_TAG_RESOLVERS = new Map([
 	["ref", refResolver],
@@ -41,17 +44,18 @@ function envResolver(value, { env }) {
 		throw new Error("No environment variable set");
 	}
 
-	return envVariable;
+	// Typecasting should be fine here - if a bad value is passed (ie. non-serializable value)
+	// then the actual parsing logic should fail
+	return /** @type {Value} */ (envVariable);
 }
 
 /** @type {TagResolver} */
 function stringResolver(value) {
-	const type = typeof value;
-	if (type === "string") {
+	if (typeof value === "string") {
 		return value;
 	}
 
-	if (type === "number" || type === "boolean" || value === null) {
+	if (typeof value === "number" || typeof value === "boolean" || value === null) {
 		return String(value);
 	}
 
@@ -142,4 +146,136 @@ function boolResolver(value) {
 	}
 
 	throw new Error("Cannot convert to boolean");
+}
+
+// -------------------------
+// STATEMENT RESOLVERS
+// -------------------------
+/** @type {Map<string, StatementResolver>} */
+export const BUILT_IN_STATEMENT_RESOLVERS = new Map([
+	["import", importResolver],
+	["export", exportResolver],
+	["extends", extendsResolver],
+]);
+
+/** @type {StatementResolver} */
+function importResolver(args, context) {
+	if (args[0] !== "from") {
+		throw new Error('Must follow syntax `import from "path/to/file" { ... }`');
+	}
+
+	const filePath = args[1];
+	if (typeof filePath !== "string") {
+		throw new Error("File path must be a string");
+	}
+	if (!filePath) {
+		throw new Error("Cannot have empty file path");
+	}
+
+	const file = context.loadFile(filePath);
+	if (!file) {
+		throw new Error("Could not resolve file at path");
+	}
+
+	// TODO: Cache resolved values/variables to avoid parsing every time
+	const { variables } = context.parse(file);
+
+	const instructions = args[2];
+	if (!isObject(instructions)) {
+		throw new Error("Must have variables object");
+	}
+
+	for (const [name, instruction] of Object.entries(instructions)) {
+		if (!name.startsWith("$") || instruction === false) {
+			continue;
+		}
+
+		if (name in context.variables) {
+			throw new Error("Cannot import variable as it has already been declared");
+		}
+
+		if (instruction !== true && !(instruction instanceof Statement)) {
+			throw new Error("Invalid import instruction");
+		}
+
+		if (instruction instanceof Statement) {
+			// Supporting multiple aliases for the same variable
+			// (eg. { $foo as $bar, $foo as $baz })
+			for (const args of instruction.args) {
+				if (args[0] !== "as") {
+					throw new Error("Invalid alias statement");
+				}
+
+				const alias = args[1];
+				if (typeof alias !== "string" || !alias.startsWith("$")) {
+					throw new Error("Invalid alias name. Variables must start with $");
+				}
+
+				const success = context.declareVariable(alias, variables[name]);
+				if (!success) {
+					throw new Error("Could not declare aliased variable");
+				}
+			}
+		} else {
+			if (!(name in variables)) {
+				throw new Error("Cannot import variable that is unexported");
+			}
+
+			const success = context.declareVariable(name, variables[name]);
+			if (!success) {
+				throw new Error("Could not declare variable");
+			}
+		}
+	}
+
+	return { action: "discard" };
+}
+
+/** @type {StatementResolver} */
+function exportResolver(args, context) {
+	if (args[0] !== "vars") {
+		throw new Error("Must follow syntax `export vars { ... }`");
+	}
+
+	const variables = args[1];
+	if (!isObject(variables)) {
+		throw new Error("Must have object for exporting variables");
+	}
+
+	for (const [name, instruction] of Object.entries(variables)) {
+		if (!name.startsWith("$")) {
+			continue;
+		}
+
+		let value;
+		if (instruction === true) {
+			value = context.variables[name];
+			// No variable with the name exists, its an inline declaration
+			if (value === undefined) {
+				value = true;
+			}
+		} else {
+			// Inline declaration
+			value = /** @type {Value} */ (instruction);
+		}
+
+		context.declareVariable(name, value, { export: true, exportOnly: true });
+	}
+
+	return { action: "discard" };
+}
+
+/** @type {StatementResolver} */
+function extendsResolver(args, context) {
+	if (typeof args[0] !== "string") {
+		throw new Error("Must have string as the argument");
+	}
+
+	const file = context.loadFile(args[0]);
+	if (!file) {
+		throw new Error("Could not resolve file at path");
+	}
+
+	const { data } = context.parse(file);
+	return { action: "merge", value: data };
 }

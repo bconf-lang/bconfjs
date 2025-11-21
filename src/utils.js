@@ -1,20 +1,21 @@
-/** @import { Container, KeyPart } from './types.js' */
+/** @import { Container, Value } from './types.js' */
 
 import { Token } from "./lexer.js";
 import { KeyPath } from "./values.js";
 
 /**
  * @param {Record<string, unknown>} root
- * @param {Array<KeyPart>} key
+ * @param {KeyPath} key
  * @returns {Container}
  */
 export function getParentForKey(root, key) {
 	/** @type {Container} */
 	let current = root;
 
-	for (let i = 0; i < key.length; i++) {
-		const part = key[i];
-		const isLastPart = i === key.length - 1;
+	const parts = key.parts;
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i];
+		const isLastPart = i === parts.length - 1;
 
 		if (part.key) {
 			if (isLastPart && part.index === null) {
@@ -29,7 +30,7 @@ export function getParentForKey(root, key) {
 				break;
 			}
 
-			const nextPart = key[i + 1];
+			const nextPart = parts[i + 1];
 			// This is to consider if its a deeply nested property inside an array
 			// (eg. `foo.bar[0].baz` or `foo.bar[0][0]`) so the value can be properly created
 			const isNextPartArrayChain = !nextPart?.key && nextPart.index !== null;
@@ -94,7 +95,7 @@ export function isObject(value) {
  * if the structure does not match (e.g. expecting an array but found an object).
  * @param {Record<string, unknown> | Array<unknown>} root - The data structure to traverse
  * @param {KeyPath} path - The parsed KeyPath object
- * @returns {unknown | undefined}
+ * @returns {Value | undefined}
  */
 export function getValueAtPath(root, path) {
 	let current = root;
@@ -166,4 +167,24 @@ export function looksLikeNumber(token) {
 	}
 	const firstChar = token.literal.charAt(0);
 	return (firstChar >= "0" && firstChar <= "9") || firstChar === "-" || firstChar === "+";
+}
+
+/**
+ * Merges the source object into the target object.
+ * Arrays and primitives are overwritten. Objects are merged recursively.
+ * @param {Record<string, unknown>} target
+ * @param {Record<string, unknown>} source
+ */
+export function deepMerge(target, source) {
+	for (const key of Object.keys(source)) {
+		const sourceValue = source[key];
+		const targetValue = target[key];
+
+		if (isObject(sourceValue) && isObject(targetValue)) {
+			deepMerge(targetValue, sourceValue);
+		} else {
+			target[key] = sourceValue;
+		}
+	}
+	return target;
 }

@@ -348,9 +348,12 @@ export class Lexer {
 				return new Token(
 					// This just makes it easier to differentiate array indexes from regular arrays
 					// primarily in statements where having a single token is ambiguous when whitespace
-					// is filtered out
+					// is filtered out. RBRACKET is to account multi-dimensional indexes (ie. `foo[0][1]`).
+					// Regular arrays should always be captured correctly since it will be separated by whitespace
+					// or an operator
 					this.lastToken?.type === TokenType.IDENTIFIER ||
-					this.lastToken?.type === TokenType.VARIABLE
+					this.lastToken?.type === TokenType.VARIABLE ||
+					this.lastToken?.type === TokenType.RBRACKET
 						? TokenType.INDEX_LBRACKET
 						: TokenType.LBRACKET,
 					"[",

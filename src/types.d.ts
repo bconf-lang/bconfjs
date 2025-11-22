@@ -35,8 +35,8 @@ export type StatementResolver = (
 export type StatementResolverContext = {
 	// Record of environment variables
 	env: Record<string, unknown>;
-	// All variables currently parsed
-	variables: { readonly [variable: string]: Value };
+	// Get the variable with the given name
+	getVariable: (name: string) => { found: false } | { found: true; value: Value };
 	// Load a file at the given path. This will return an empty string if no file
 	// can be resolved at the path
 	loadFile: (path: string, opts?: FileLoaderFetchOptions) => Promise<string>;
@@ -130,3 +130,22 @@ export type ParsedNumber = {
 // Represents a node in the config tree that can hold children.
 // Essentially its a union of an array and object, but typed to allow flexible access.
 export type Container = Record<string | number, unknown>;
+
+export type ParseValueOptions = {
+	// Whether variables should be resolved as their value or as a literal.
+	// This is to account for import/export statements where variables can be aliased
+	// using a bare variable identifier. The default behaviour will try to resolve that
+	// aliased name instead of treating it as a plain identifier
+	varAsLiteral?: boolean;
+	// If variables should have their values assigned to the root object or the variable
+	// scope. This is also to account for import/export statements to prevent variables from
+	// being assigned to the scope of the import block which is popped when control returns
+	// to resolving the statement
+	assignVarsToRoot?: boolean;
+	// Whether to treat non-number identifiers as valid. If true, the literal of the
+	// identifier will be used as the value
+	allowBareIdents?: boolean;
+	// Mainly for statements which have a stricter identifier syntax. This does not
+	// allow identifiers which may be keys (ie. is it followed by a dot or array index)
+	strictIdents?: boolean;
+};

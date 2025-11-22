@@ -186,7 +186,11 @@ async function importResolver(args, context) {
 			continue;
 		}
 
-		if (name in context.variables) {
+		if (!(name in variables)) {
+			throw new Error("Cannot import unexported variable");
+		}
+
+		if (context.getVariable(name).found) {
 			throw new Error("Cannot import variable as it has already been declared");
 		}
 
@@ -247,11 +251,9 @@ async function exportResolver(args, context) {
 
 		let value;
 		if (instruction === true) {
-			value = context.variables[name];
+			const resolvedVariable = context.getVariable(name);
 			// No variable with the name exists, its an inline declaration
-			if (value === undefined) {
-				value = true;
-			}
+			value = resolvedVariable.found ? resolvedVariable.value : true;
 		} else {
 			// Inline declaration
 			value = /** @type {Value} */ (instruction);

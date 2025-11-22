@@ -136,21 +136,21 @@ export function getValueAtPath(root, path) {
  */
 export function validateAndParseNumber(input) {
 	if (input.charAt(0) === "_" || input.charAt(input.length - 1) === "_") {
-		throw new Error("Cannot have leading or trailing underscores for number");
+		throw new Error("cannot have leading or trailing underscores for number");
 	}
 
 	// Pretty naive way of checking if there are consecutive underscores, but it works
 	if (input.includes("__")) {
-		throw new Error("Cannot have consecutive underscores for number");
+		throw new Error("cannot have consecutive underscores for number");
 	}
 
 	// Need to replace the underscores for the conversion since it's an invalid number otherwise
 	const value = Number(input.replaceAll("_", ""));
 	if (isNaN(value)) {
-		throw new Error("Invalid number");
+		throw new Error("invalid number");
 	} else if (value === Infinity || value === -Infinity) {
 		// Following the spec that infinity values are not supported
-		throw new Error("Infinity value not supported");
+		throw new Error("infinity value not supported");
 	}
 
 	return value;

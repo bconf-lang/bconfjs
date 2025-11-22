@@ -14,6 +14,7 @@ import {
 	validateAndParseNumber,
 } from "./utils.js";
 import { KeyPath, Statement, Tag } from "./values.js";
+import { BconfError } from "./error.js";
 
 const EXPONENT_REGEX = /[eE]/;
 
@@ -151,7 +152,7 @@ class Parser {
 	 */
 	async parseKeyLiteral() {
 		if (!this.currToken.literal) {
-			throw new Error("The literal should not be null when parsing a key part");
+			throw new BconfError("expected a valid key but got an empty literal", this.currToken);
 		}
 
 		/** @type {KeyPart} */
@@ -167,7 +168,7 @@ class Parser {
 				break;
 			case TokenType.IDENTIFIER:
 				if (this.currToken.literal.includes("+")) {
-					throw new Error("Not an actual alphanumeric key");
+					throw new BconfError("invalid key", this.currToken);
 				}
 
 				part.type = "alphanumeric";
@@ -178,7 +179,7 @@ class Parser {
 				part.key = await this.parseString();
 				break;
 			default:
-				throw new Error("Unexpected key type");
+				throw new BconfError("expected key", this.currToken);
 		}
 
 		this.advance();
@@ -192,20 +193,20 @@ class Parser {
 	parseArrayIndex() {
 		this.advance(); // Consume `[`
 		if (this.currToken.type !== TokenType.IDENTIFIER) {
-			throw new Error("Expected index number inside brackets");
+			throw new BconfError("expected number for array index", this.currToken);
 		}
 
 		const index = this.parseNumber();
 		if (index.type === "float") {
-			throw new Error("Index cannot be a float");
+			throw new BconfError("expected array index to be an integer", this.currToken);
 		}
 
 		if (index.value < 0) {
-			throw new Error("Cannot have negative index number");
+			throw new BconfError("expected non-negative integer for array index", this.currToken);
 		}
 
 		if (this.currToken.type !== TokenType.RBRACKET) {
-			throw new Error("Expected closing bracket ']'");
+			throw new BconfError("expected ']'", this.currToken);
 		}
 
 		this.advance(); // Consume `]`
@@ -255,8 +256,9 @@ class Parser {
 			const segments = await this.parseKeySegment();
 
 			// Variable keys can only be the first key
+			// TODO: Add more info to the keys for their row/col for better reporting
 			if (segments.some((part) => part.type === "variable")) {
-				throw new Error("Cannot have a variable key in a nested key");
+				throw new BconfError("unexpected variable key in key sequence", this.currToken);
 			}
 
 			parts.push(...segments);
@@ -270,17 +272,17 @@ class Parser {
 	 */
 	parseStrictIdentifier() {
 		if (!this.currToken.literal) {
-			throw new Error("Unexpected empty literal");
+			throw new BconfError("expected valid key but got an empty literal", this.currToken);
 		}
 
 		const value = this.currToken.literal;
 		this.advance();
 
 		if (this.currToken.type === TokenType.DOT) {
-			throw new Error("Dotted keys are not allowed in this context");
+			throw new BconfError("dotted keys are not allowed in statements", this.currToken);
 		}
 		if (this.currToken.type === TokenType.INDEX_LBRACKET) {
-			throw new Error("Array accessors are not allowed in this context");
+			throw new BconfError("array indexes are not allowed in statements", this.currToken);
 		}
 
 		return value;
@@ -306,7 +308,7 @@ class Parser {
 				return "true-shorthand";
 			case TokenType.COMMA:
 				if (stopToken === TokenType.EOF) {
-					throw new Error("Unexpected token as operator");
+					throw new BconfError("unexpected end of data", this.currToken);
 				}
 				return "true-shorthand"; // This accounts for trailing commas in objects like `{foo,}`
 			case TokenType.IDENTIFIER:
@@ -318,7 +320,10 @@ class Parser {
 				// Don't advance since its an actual value and should be handled by their own parsing methods
 				return "statement";
 			default:
-				throw new Error("Unexpected token as operator");
+				throw new BconfError(
+					`unexpected operator '${this.currToken.literal}'`,
+					this.currToken
+				);
 		}
 	}
 
@@ -353,7 +358,7 @@ class Parser {
 					values[values.length - 1] === "as",
 			});
 			if (parsed instanceof KeyPath) {
-				throw new Error("Somehow ended up with a key path as a value in a statement");
+				throw new BconfError("keys are not valid values in statements", this.currToken);
 			}
 
 			values.push(parsed);
@@ -424,8 +429,15 @@ class Parser {
 			},
 		};
 
-		const action = await resolver(args, context);
-		return action;
+		try {
+			return await resolver(args, context);
+		} catch (error) {
+			if (error instanceof Error) {
+				throw new BconfError(error.message, this.currToken);
+			}
+
+			throw new BconfError("unexpected error while resolving statement", this.currToken);
+		}
 	}
 
 	/**
@@ -433,7 +445,10 @@ class Parser {
 	 */
 	parseNumber() {
 		if (this.currToken.type !== TokenType.IDENTIFIER) {
-			throw new Error("Expected IDENTIFIER token");
+			throw new BconfError(
+				`expected number but got '${this.currToken.literal}'`,
+				this.currToken
+			);
 		}
 
 		let resolvedNumber = this.currToken.literal ?? "";
@@ -453,7 +468,7 @@ class Parser {
 			resolvedNumber += ".";
 			this.advance();
 			if (this.currToken.type !== TokenType.IDENTIFIER) {
-				throw new Error("Invalid float");
+				throw new BconfError("unterminated float", this.currToken);
 			}
 
 			resolvedNumber += this.currToken.literal ?? "";
@@ -471,7 +486,10 @@ class Parser {
 		this.advance(); // Consume `${`
 
 		if (!this.currToken.literal) {
-			throw new Error("Unexpected empty literal");
+			throw new BconfError(
+				`expected expression, got '${this.currToken.literal}'`,
+				this.currToken
+			);
 		}
 
 		/** @type {string} */
@@ -485,16 +503,34 @@ class Parser {
 				const key = await this.parseKey();
 				const variable = this.currentScope.resolve(key);
 				if (!variable.found) {
-					throw new Error("Could not resolve variable for name");
+					throw new BconfError(
+						`could not resolve variable '${key.serialize()}'`,
+						this.currToken
+					);
 				}
+
+				if (
+					variable.value instanceof Tag ||
+					isObject(variable.value) ||
+					Array.isArray(variable.value)
+				) {
+					throw new BconfError(
+						"variable must resolve to a primitive in embedded values",
+						this.currToken
+					);
+				}
+
 				value = variable.value;
 				break;
 			}
 			case TokenType.IDENTIFIER:
 				if (this.isTag()) {
 					const parsed = await this.parseTag();
-					if (parsed instanceof Tag) {
-						throw new Error("Cannot have unresolved tag in embedded value");
+					if (parsed instanceof Tag || isObject(parsed) || Array.isArray(parsed)) {
+						throw new BconfError(
+							"tags must resolve to a primitive in embedded values",
+							this.currToken
+						);
 					}
 
 					value = String(parsed);
@@ -507,11 +543,14 @@ class Parser {
 				value = this.currToken.literal;
 				break;
 			default:
-				throw new Error("unexpected token in embedded value");
+				throw new BconfError(
+					"only primitive values are allowed in embedded values",
+					this.currToken
+				);
 		}
 
 		if (this.currToken.type !== TokenType.EMBEDDED_VALUE_END) {
-			throw new Error("Expected closing brace '}' for embedded value");
+			throw new BconfError(`expected '}', got '${this.currToken.literal}'`, this.currToken);
 		}
 
 		this.advance(); // Consume `}`
@@ -520,7 +559,7 @@ class Parser {
 
 	parseEscapedValue() {
 		if (!this.currToken.literal) {
-			throw new Error("Unexpect empty value for escaped value");
+			throw new BconfError("unexpected empty value", this.currToken);
 		}
 
 		const code = this.currToken.literal[1];
@@ -545,17 +584,20 @@ class Parser {
 			case "U":
 				const codePoint = parseInt(this.currToken.literal.substring(2), 16);
 				if (isNaN(codePoint)) {
-					throw new Error("Invalid unicode code point in escape sequence");
+					throw new BconfError("invalid escaped unicode code point", this.currToken);
 				}
 
 				try {
 					return String.fromCodePoint(codePoint);
 				} catch (e) {
-					throw new Error("Invalid unicode code point");
+					throw new BconfError("invalid escaped unicode code point", this.currToken);
 				}
 
 			default:
-				throw new Error("Invalid escape sequence");
+				throw new BconfError(
+					`invalid escape sequence '${this.currToken.literal}'`,
+					this.currToken
+				);
 		}
 	}
 
@@ -578,12 +620,15 @@ class Parser {
 					this.advance();
 					break;
 				default:
-					throw new Error("Unexpected token in string");
+					throw new BconfError("unexpected value in string", this.currToken);
 			}
 		}
 
 		if (this.currToken.type !== boundary) {
-			throw new Error("Expected closing brace '}' for object");
+			throw new BconfError(
+				`expected ${boundary}, got ${this.currToken.literal}`,
+				this.currToken
+			);
 		}
 
 		this.advance(); // Consume `"` or `"""`
@@ -592,28 +637,36 @@ class Parser {
 
 	async parseTag() {
 		if (!this.currToken.literal) {
-			throw new Error("Unexpected empty tag name");
+			throw new BconfError("unexpected empty tag name", this.currToken);
 		}
 
 		const tagName = this.currToken.literal;
 		this.advance(); // Consume tag name
 
 		if (this.currToken.type !== TokenType.LPAREN) {
-			throw new Error("Expected opening brace '(' for tag");
+			throw new BconfError(`expected '(', got '${this.currToken.literal}'`, this.currToken);
 		}
 		this.advance(); // Consume `(`
 
 		let value = await this.parseValue({ allowBareIdents: true });
 		const resolver = this.tagResolvers.get(tagName);
 		if (resolver) {
-			value = resolver(value, {
-				resolve: (path) => getValueAtPath(this.result, path),
-				env: this.env,
-			});
+			try {
+				value = resolver(value, {
+					resolve: (path) => getValueAtPath(this.result, path),
+					env: this.env,
+				});
+			} catch (error) {
+				if (error instanceof Error) {
+					throw new BconfError(error.message, this.currToken);
+				}
+
+				throw new BconfError("unexpected error when resolving tag", this.currToken);
+			}
 		}
 
 		if (this.currToken.type !== TokenType.RPAREN) {
-			throw new Error("Expected opening brace ')' for tag");
+			throw new BconfError(`expected ')', got '${this.currToken.type}'`, this.currToken);
 		}
 
 		if (value instanceof KeyPath || value instanceof Tag) {
@@ -634,7 +687,7 @@ class Parser {
 		const obj = {};
 		await this.parseBlock(TokenType.RBRACE, obj, assignVarsToRoot);
 		if (this.currToken.type !== TokenType.RBRACE) {
-			throw new Error("Expected closing brace '}' for object");
+			throw new BconfError(`expected '}', got ${this.currToken.literal}`, this.currToken);
 		}
 
 		this.advance(); // Consume `}`
@@ -671,7 +724,7 @@ class Parser {
 		}
 
 		if (this.currToken.type !== TokenType.RBRACKET) {
-			throw new Error("Expected closing brace ']' for array");
+			throw new BconfError(`expected ']', got ${this.currToken.literal}`, this.currToken);
 		}
 
 		this.advance(); // Consume `]`
@@ -697,8 +750,9 @@ class Parser {
 					return opts.strictIdents ? this.parseStrictIdentifier() : await this.parseKey();
 				}
 
-				throw new Error(
-					`Unexpected identifier '${this.currToken.literal}' in value position.`
+				throw new BconfError(
+					`Unexpected identifier as value '${this.currToken.literal}'`,
+					this.currToken
 				);
 			}
 			case TokenType.NULL:
@@ -725,19 +779,25 @@ class Parser {
 				}
 
 				if (!this.currToken.literal) {
-					throw new Error("Unexpected empty token literal for variable");
+					throw new BconfError("unexpected empty variable name", this.currToken);
 				}
 
 				const key = await this.parseKey();
 				const variable = this.currentScope.resolve(key);
 				if (!variable.found) {
-					throw new Error("Could not find variable with name");
+					throw new BconfError(
+						`could not resolve variable '${key.serialize()}'`,
+						this.currToken
+					);
 				}
 
 				return variable.value;
 			}
 			default:
-				throw new Error("Unexpected token for value");
+				throw new BconfError(
+					`unexpected value '${this.currToken.literal}'`,
+					this.currToken
+				);
 		}
 	}
 
@@ -766,7 +826,7 @@ class Parser {
 			const key = await this.parseKey();
 			const lastKey = key.parts[key.parts.length - 1];
 			if (lastKey.index === null && !lastKey.key) {
-				throw new Error("Somehow ended up with an empty key....");
+				throw new BconfError("unexpected empty key part", this.currToken);
 			}
 
 			const keyToUse = lastKey.index ?? lastKey.key;
@@ -817,7 +877,10 @@ class Parser {
 					}
 					case "merge": {
 						if (!isObject(resolved.value)) {
-							throw new Error("Cannot merge non object values into current document");
+							throw new BconfError(
+								"cannot merge non object values into current document when resolving statement",
+								this.currToken
+							);
 						}
 
 						deepMerge(root, resolved.value);

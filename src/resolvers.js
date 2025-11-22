@@ -22,12 +22,12 @@ export const BUILT_IN_TAG_RESOLVERS = new Map([
 /** @type {TagResolver} */
 function refResolver(value, { resolve }) {
 	if (!(value instanceof KeyPath)) {
-		throw new Error("Key must be passed to ref tag");
+		throw new Error("expected key path for 'ref' tag");
 	}
 
 	const resolvedValue = resolve(value);
 	if (resolvedValue === undefined) {
-		throw new Error("No value at key path");
+		throw new Error(`no value exists for at key '${value.serialize()}'`);
 	}
 
 	return resolvedValue;
@@ -36,12 +36,12 @@ function refResolver(value, { resolve }) {
 /** @type {TagResolver} */
 function envResolver(value, { env }) {
 	if (typeof value !== "string") {
-		throw new Error("Value in env resolver must be a string");
+		throw new Error("expected a string value for 'env' tag");
 	}
 
 	const envVariable = env[value];
 	if (envVariable === undefined) {
-		throw new Error("No environment variable set");
+		throw new Error(`no environment variable '${value}' is set`);
 	}
 
 	// Typecasting should be fine here - if a bad value is passed (ie. non-serializable value)
@@ -59,7 +59,7 @@ function stringResolver(value) {
 		return String(value);
 	}
 
-	throw new Error("Cannot resolve value to string");
+	throw new Error("cannot convert value to string");
 }
 
 /** @type {TagResolver} */
@@ -80,7 +80,7 @@ function numberResolver(value) {
 		return validateAndParseNumber(value);
 	}
 
-	throw new Error("Cannot convert value to number");
+	throw new Error("cannot convert value to number");
 }
 
 /** @type {TagResolver} */
@@ -101,7 +101,7 @@ function intResolver(value) {
 		return Number.isInteger(value) ? value : Math.trunc(value);
 	}
 
-	throw new Error("Cannot convert to integer");
+	throw new Error("cannot convert value to integer");
 }
 
 /** @type {TagResolver} */
@@ -124,7 +124,7 @@ function floatResolver(value) {
 		return value;
 	}
 
-	throw new Error("Cannot convert to integer");
+	throw new Error("cannot convert value to float");
 }
 
 /** @type {TagResolver} */
@@ -145,7 +145,7 @@ function boolResolver(value) {
 		return value !== 0;
 	}
 
-	throw new Error("Cannot convert to boolean");
+	throw new Error("cannot convert value to boolean");
 }
 
 // -------------------------
@@ -161,15 +161,17 @@ export const BUILT_IN_STATEMENT_RESOLVERS = new Map([
 /** @type {StatementResolver} */
 async function importResolver(args, context) {
 	if (args[0] !== "from") {
-		throw new Error('Must follow syntax `import from "path/to/file" { ... }`');
+		throw new Error(
+			`expected 'from' to be the second argument in import statements but got '${args[0]}'`
+		);
 	}
 
 	const filePath = args[1];
 	if (typeof filePath !== "string") {
-		throw new Error("File path must be a string");
+		throw new Error("file path must be a string in import statements");
 	}
 	if (!filePath) {
-		throw new Error("Cannot have empty file path");
+		throw new Error("file path cannot be empty in import statements");
 	}
 
 	const file = await context.loadFile(filePath);
@@ -178,7 +180,7 @@ async function importResolver(args, context) {
 
 	const instructions = args[2];
 	if (!isObject(instructions)) {
-		throw new Error("Must have variables object");
+		throw new Error("expected object with variables to import");
 	}
 
 	for (const [name, instruction] of Object.entries(instructions)) {
@@ -187,15 +189,17 @@ async function importResolver(args, context) {
 		}
 
 		if (!(name in variables)) {
-			throw new Error("Cannot import unexported variable");
+			throw new Error(`variable '${name}' is not exported from '${filePath}'`);
 		}
 
 		if (context.getVariable(name).found) {
-			throw new Error("Cannot import variable as it has already been declared");
+			throw new Error(
+				`variable '${name}' cannot be imported as it has already been declared`
+			);
 		}
 
 		if (instruction !== true && !(instruction instanceof Statement)) {
-			throw new Error("Invalid import instruction");
+			throw new Error(`invalid import instruction for '${name}'`);
 		}
 
 		if (instruction instanceof Statement) {
@@ -203,27 +207,23 @@ async function importResolver(args, context) {
 			// (eg. { $foo as $bar, $foo as $baz })
 			for (const args of instruction.args) {
 				if (args[0] !== "as") {
-					throw new Error("Invalid alias statement");
+					throw new Error(`expected 'as' for alias statement, got '${args[0]}'`);
 				}
 
 				const alias = args[1];
 				if (typeof alias !== "string" || !alias.startsWith("$")) {
-					throw new Error("Invalid alias name. Variables must start with $");
+					throw new Error(`invalid alias name '${alias}', must follow variable syntax`);
 				}
 
 				const success = context.declareVariable(alias, variables[name]);
 				if (!success) {
-					throw new Error("Could not declare aliased variable");
+					throw new Error(`unexpectedly could not declare variable alias '${alias}'`);
 				}
 			}
 		} else {
-			if (!(name in variables)) {
-				throw new Error("Cannot import variable that is unexported");
-			}
-
 			const success = context.declareVariable(name, variables[name]);
 			if (!success) {
-				throw new Error("Could not declare variable");
+				throw new Error(`unexpectedly could not declare variable '${name}'`);
 			}
 		}
 	}
@@ -236,12 +236,14 @@ async function importResolver(args, context) {
  */
 async function exportResolver(args, context) {
 	if (args[0] !== "vars") {
-		throw new Error("Must follow syntax `export vars { ... }`");
+		throw new Error(
+			`expected 'vars' to be the second argument in export statements but got '${args[0]}'`
+		);
 	}
 
 	const variables = args[1];
 	if (!isObject(variables)) {
-		throw new Error("Must have object for exporting variables");
+		throw new Error("expected object with variables to export");
 	}
 
 	for (const [name, instruction] of Object.entries(variables)) {
@@ -249,6 +251,7 @@ async function exportResolver(args, context) {
 			continue;
 		}
 
+		// TODO: Handle aliased exports
 		let value;
 		if (instruction === true) {
 			const resolvedVariable = context.getVariable(name);
@@ -259,7 +262,10 @@ async function exportResolver(args, context) {
 			value = /** @type {Value} */ (instruction);
 		}
 
-		context.declareVariable(name, value, { export: true, exportOnly: true });
+		const success = context.declareVariable(name, value, { export: true, exportOnly: true });
+		if (!success) {
+			throw new Error(`unexpectedly could not export variable '${name}'`);
+		}
 	}
 
 	return { action: "discard" };
@@ -268,7 +274,7 @@ async function exportResolver(args, context) {
 /** @type {StatementResolver} */
 async function extendsResolver(args, context) {
 	if (typeof args[0] !== "string") {
-		throw new Error("Must have string as the argument");
+		throw new Error("file path must be a string");
 	}
 
 	const file = await context.loadFile(args[0]);

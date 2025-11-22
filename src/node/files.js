@@ -16,7 +16,7 @@ export async function resolveFile(root, path, opts = {}) {
 		encoding: "utf-8",
 		signal: controller.signal,
 	}).catch(() => {
-		throw new Error(`No such file or directory ${finalPath}`);
+		throw new Error(`no such file or directory '${finalPath}'`);
 	});
 	clearTimeout(abortTimeout);
 

@@ -21,7 +21,7 @@ export async function resolveFile(root, path, opts = {}) {
 	const res = await fetch(finalPath, { signal: controller.signal, ...rest });
 	clearTimeout(abortTimeout);
 	if (!res.ok) {
-		throw new Error("Could not get file");
+		throw new Error(`could not fetch file '${finalPath}'`);
 	}
 
 	const blob = await res.blob();

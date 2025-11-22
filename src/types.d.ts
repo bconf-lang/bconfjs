@@ -1,3 +1,4 @@
+import { Token } from "./lexer.js";
 import type { KeyPath, Tag, Statement } from "./values.js";
 
 export type Value =

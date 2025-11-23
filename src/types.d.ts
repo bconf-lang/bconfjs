@@ -1,4 +1,3 @@
-import { Token } from "./lexer.js";
 import type { KeyPath, Tag, Statement } from "./values.js";
 
 export type Value =
@@ -30,7 +29,7 @@ export type TagResolverArgs = {
 
 export type StatementResolver = (
 	args: Array<Value>,
-	context: StatementResolverContext
+	context: StatementResolverContext,
 ) => Promise<StatementAction>;
 
 export type StatementResolverContext = {
@@ -57,7 +56,7 @@ export type StatementResolverContext = {
 			// If the variable should only be exported and not available to the current document.
 			// Default `false`
 			exportOnly?: boolean;
-		}
+		},
 	) => boolean;
 
 	// Parse a given file
@@ -104,7 +103,7 @@ export type ParseOptions = {
 export type FileLoader = (
 	root: string,
 	path: string,
-	opts?: FileLoaderFetchOptions
+	opts?: FileLoaderFetchOptions,
 ) => Promise<string>;
 
 export type FileLoaderFetchOptions = Omit<RequestInit, "signal"> & {

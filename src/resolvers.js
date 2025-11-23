@@ -162,7 +162,7 @@ export const BUILT_IN_STATEMENT_RESOLVERS = new Map([
 async function importResolver(args, context) {
 	if (args[0] !== "from") {
 		throw new Error(
-			`expected 'from' to be the second argument in import statements but got '${args[0]}'`
+			`expected 'from' to be the second argument in import statements but got '${args[0]}'`,
 		);
 	}
 
@@ -194,7 +194,7 @@ async function importResolver(args, context) {
 
 		if (context.getVariable(name).found) {
 			throw new Error(
-				`variable '${name}' cannot be imported as it has already been declared`
+				`variable '${name}' cannot be imported as it has already been declared`,
 			);
 		}
 
@@ -237,7 +237,7 @@ async function importResolver(args, context) {
 async function exportResolver(args, context) {
 	if (args[0] !== "vars") {
 		throw new Error(
-			`expected 'vars' to be the second argument in export statements but got '${args[0]}'`
+			`expected 'vars' to be the second argument in export statements but got '${args[0]}'`,
 		);
 	}
 

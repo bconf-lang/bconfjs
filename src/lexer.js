@@ -74,8 +74,8 @@ const StringType = {
 // and left to the parser to differentiate the true type. Only `+` is unique
 // to numbers and cannot be used in an alphanumeric key, so the parser will
 // need to account for whether or not the key is valid
-const IDENTIFIER_CANDIDATE_REGEX = /[A-Za-z0-9_+\-]/;
-const ALPHANUMERIC_REGEX = /[A-Za-z0-9_\-]/;
+const IDENTIFIER_CANDIDATE_REGEX = /[A-Za-z0-9_+-]/;
+const ALPHANUMERIC_REGEX = /[A-Za-z0-9_-]/;
 const UNICODE_SHORT_ESCAPE_LENGTH = 4;
 const UNICODE_LONG_ESCAPE_LENGTH = 8;
 
@@ -370,13 +370,13 @@ export class Lexer {
 					// Regular arrays should always be captured correctly since it will be separated by whitespace
 					// or an operator
 					this.lastToken?.type === TokenType.IDENTIFIER ||
-					this.lastToken?.type === TokenType.VARIABLE ||
-					this.lastToken?.type === TokenType.RBRACKET
+						this.lastToken?.type === TokenType.VARIABLE ||
+						this.lastToken?.type === TokenType.RBRACKET
 						? TokenType.INDEX_LBRACKET
 						: TokenType.LBRACKET,
 					"[",
 					this.row,
-					col
+					col,
 				);
 			case "]":
 				this.advance();
@@ -433,7 +433,7 @@ export class Lexer {
 					isTripleQuote ? TokenType.TRIPLE_QUOTE : TokenType.DOUBLE_QUOTE,
 					isTripleQuote ? '"""' : '"',
 					this.row,
-					col
+					col,
 				);
 			}
 

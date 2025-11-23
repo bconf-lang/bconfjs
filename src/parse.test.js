@@ -16,11 +16,11 @@ async function assertThrows(input, messageMatch) {
 			if (messageMatch) {
 				assert.ok(
 					err.message.includes(messageMatch),
-					`Expected error message to include "${messageMatch}", got "${err.message}"`
+					`Expected error message to include "${messageMatch}", got "${err.message}"`,
 				);
 			}
 			return true;
-		}
+		},
 	);
 }
 
@@ -495,7 +495,7 @@ describe("Tags", () => {
 	it("should reject ref() to undefined key", async () => {
 		await assertThrows(
 			"val = ref(undefined.key)",
-			"no value exists for at key 'undefined.key'"
+			"no value exists for at key 'undefined.key'",
 		);
 	});
 
@@ -607,7 +607,7 @@ describe("Tags", () => {
 	it("should reject tags returning objects in embedded values", async () => {
 		await assertThrows(
 			'val = "text ${custom_tag({ a = 1 })}"',
-			"tags must resolve to a primitive in embedded values"
+			"tags must resolve to a primitive in embedded values",
 		);
 	});
 });
@@ -877,11 +877,11 @@ describe("Custom Tags and Statements", () => {
 				assert.ok(err instanceof BconfError);
 				assert.ok(
 					err.message.includes(errMessage),
-					`Expected error message to include "${errMessage}", got "${err.message}"`
+					`Expected error message to include "${errMessage}", got "${err.message}"`,
 				);
 
 				return true;
-			}
+			},
 		);
 	});
 
@@ -947,11 +947,11 @@ describe("Statement Resolvers (import/export/extends)", () => {
 				assert.ok(err instanceof BconfError);
 				assert.ok(
 					err.message.includes(errMessage),
-					`Expected error message to include "${errMessage}", got "${err.message}"`
+					`Expected error message to include "${errMessage}", got "${err.message}"`,
 				);
 
 				return true;
-			}
+			},
 		);
 	});
 });
@@ -997,7 +997,7 @@ describe("Variable Scoping", () => {
       }
       key = $local
     `,
-			"could not resolve variable"
+			"could not resolve variable",
 		);
 	});
 

@@ -77,7 +77,7 @@ class Parser {
 	/** @type {Scope} */ currentScope = this.rootScope;
 
 	/** @type {Map<string, StatementResolver>} */ statementResolvers = new Map(
-		BUILT_IN_STATEMENT_RESOLVERS
+		BUILT_IN_STATEMENT_RESOLVERS,
 	);
 	/** @type {Map<string, TagResolver>} */ tagResolvers = new Map(BUILT_IN_TAG_RESOLVERS);
 	env = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
@@ -116,7 +116,7 @@ class Parser {
 
 		this.pos = 0;
 		this.tokens = tokenize(input).filter(
-			(t) => t.type !== TokenType.COMMENT && t.type !== TokenType.WHITESPACE
+			(t) => t.type !== TokenType.COMMENT && t.type !== TokenType.WHITESPACE,
 		);
 		this.currToken = this.tokens[this.pos];
 	}
@@ -323,7 +323,7 @@ class Parser {
 			default:
 				throw new BconfError(
 					`unexpected operator '${this.currToken.literal}'`,
-					this.currToken
+					this.currToken,
 				);
 		}
 	}
@@ -385,7 +385,7 @@ class Parser {
 			env: this.env,
 			getVariable: (name) =>
 				this.currentScope.resolve(
-					new KeyPath([{ key: name, index: null, type: "variable" }])
+					new KeyPath([{ key: name, index: null, type: "variable" }]),
 				),
 			loadFile: (path, opts) => this.fileLoader(this.rootFilePath, path, opts),
 			declareVariable: (name, value, args) => {
@@ -448,7 +448,7 @@ class Parser {
 		if (this.currToken.type !== TokenType.IDENTIFIER) {
 			throw new BconfError(
 				`expected number but got '${this.currToken.literal}'`,
-				this.currToken
+				this.currToken,
 			);
 		}
 
@@ -497,7 +497,7 @@ class Parser {
 		if (!this.currToken.literal) {
 			throw new BconfError(
 				`expected expression, got '${this.currToken.literal}'`,
-				this.currToken
+				this.currToken,
 			);
 		}
 
@@ -514,7 +514,7 @@ class Parser {
 				if (!variable.found) {
 					throw new BconfError(
 						`could not resolve variable '${key.serialize()}'`,
-						this.currToken
+						this.currToken,
 					);
 				}
 
@@ -525,7 +525,7 @@ class Parser {
 				) {
 					throw new BconfError(
 						"variable must resolve to a primitive in embedded values",
-						this.currToken
+						this.currToken,
 					);
 				}
 
@@ -538,7 +538,7 @@ class Parser {
 					if (parsed instanceof Tag || isObject(parsed) || Array.isArray(parsed)) {
 						throw new BconfError(
 							"tags must resolve to a primitive in embedded values",
-							this.currToken
+							this.currToken,
 						);
 					}
 
@@ -555,7 +555,7 @@ class Parser {
 			default:
 				throw new BconfError(
 					"only primitive values are allowed in embedded values",
-					this.currToken
+					this.currToken,
 				);
 		}
 
@@ -591,22 +591,23 @@ class Parser {
 			case "t":
 				return "\t";
 			case "u":
-			case "U":
+			case "U": {
 				const codePoint = parseInt(this.currToken.literal.substring(2), 16);
-				if (isNaN(codePoint)) {
+				if (Number.isNaN(codePoint)) {
 					throw new BconfError("invalid escaped unicode code point", this.currToken);
 				}
 
 				try {
 					return String.fromCodePoint(codePoint);
-				} catch (e) {
+				} catch {
 					throw new BconfError("invalid escaped unicode code point", this.currToken);
 				}
+			}
 
 			default:
 				throw new BconfError(
 					`invalid escape sequence '${this.currToken.literal}'`,
-					this.currToken
+					this.currToken,
 				);
 		}
 	}
@@ -637,7 +638,7 @@ class Parser {
 		if (this.currToken.type !== boundary) {
 			throw new BconfError(
 				`expected ${boundary}, got ${this.currToken.literal}`,
-				this.currToken
+				this.currToken,
 			);
 		}
 
@@ -762,7 +763,7 @@ class Parser {
 
 				throw new BconfError(
 					`unexpected identifier as value '${this.currToken.literal}'`,
-					this.currToken
+					this.currToken,
 				);
 			}
 			case TokenType.NULL:
@@ -797,7 +798,7 @@ class Parser {
 				if (!variable.found) {
 					throw new BconfError(
 						`could not resolve variable '${key.serialize()}'`,
-						this.currToken
+						this.currToken,
 					);
 				}
 
@@ -806,7 +807,7 @@ class Parser {
 			default:
 				throw new BconfError(
 					`unexpected value '${this.currToken.literal}'`,
-					this.currToken
+					this.currToken,
 				);
 		}
 	}
@@ -889,7 +890,7 @@ class Parser {
 						if (!isObject(resolved.value)) {
 							throw new BconfError(
 								"cannot merge non object values into current document when resolving statement",
-								this.currToken
+								this.currToken,
 							);
 						}
 
@@ -908,7 +909,7 @@ class Parser {
 				} else {
 					throw new BconfError(
 						"commas are only allowed in objects and arrays",
-						this.currToken
+						this.currToken,
 					);
 				}
 			}

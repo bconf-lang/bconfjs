@@ -46,7 +46,7 @@ export function getParentForKey(root, key) {
 			current = ensureContainer(
 				current,
 				part.index,
-				isNextPartArrayChain ? "array" : "object"
+				isNextPartArrayChain ? "array" : "object",
 			);
 		}
 	}
@@ -155,7 +155,7 @@ export function validateAndParseNumber(input) {
 
 	// Need to replace the underscores for the conversion since it's an invalid number otherwise
 	const value = Number(input.replaceAll("_", ""));
-	if (isNaN(value)) {
+	if (Number.isNaN(value)) {
 		throw new Error("invalid number");
 	} else if (value === Infinity || value === -Infinity) {
 		// Following the spec that infinity values are not supported

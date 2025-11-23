@@ -58,6 +58,10 @@ const LexerMode = {
 	DEFAULT: 0,
 	STRING: 1,
 	EMBEDDED_VALUE: 2,
+	// This is essentially an alias for the default mode to ensure objects inside
+	// tag parenthesis are correctly captured, mainly when tags are inside an embedded
+	// value like `"value ${tag({ foo = 1 })}"` since
+	TAGGED_VALUE: 3,
 };
 
 const StringType = {
@@ -338,9 +342,23 @@ export class Lexer {
 				this.advance();
 				return new Token(TokenType.DOT, ".", this.row, col);
 			case "(":
+				// Adding a new context to account for objects inside tags, inside an embedded value
+				// (eg. `"string ${tag({ foo = 1 })}"`). Without it, the logic below when handling `}`
+				// will wrongly infer the first closing brace of the object is the closing brace for the
+				// embedded value. So the remaining `)}` will be treated as string content and not the correct
+				// LPAREN and RBRACE tokens
+				if (this.lastToken?.type === TokenType.IDENTIFIER) {
+					this.contextStack.push({ mode: LexerMode.DEFAULT, stringType: StringType.OFF });
+				}
 				this.advance();
 				return new Token(TokenType.LPAREN, "(", this.row, col);
 			case ")":
+				if (
+					this.currentContext.mode === LexerMode.DEFAULT &&
+					this.contextStack.length > 1
+				) {
+					this.contextStack.pop();
+				}
 				this.advance();
 				return new Token(TokenType.RPAREN, ")", this.row, col);
 			case "[":
@@ -381,7 +399,6 @@ export class Lexer {
 					}
 
 					this.contextStack.pop();
-					return new Token(TokenType.EMBEDDED_VALUE_END, "}", this.row, col);
 				}
 				return new Token(TokenType.RBRACE, "}", this.row, col);
 			case ",":

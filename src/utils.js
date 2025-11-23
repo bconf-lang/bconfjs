@@ -26,6 +26,15 @@ export function getParentForKey(root, key) {
 		}
 
 		if (part.index !== null) {
+			// `ensureContainer` only accounts for a single key/index, so when
+			// the container has been created, this ensures that indexes which
+			// are attached to keys (eg. `foo[0].bar[0]`) are always padded
+			if (Array.isArray(current)) {
+				while (current.length < part.index) {
+					current.push(null);
+				}
+			}
+
 			if (isLastPart) {
 				break;
 			}

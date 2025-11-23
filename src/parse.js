@@ -165,6 +165,7 @@ class Parser {
 			case TokenType.VARIABLE:
 				part.type = "variable";
 				part.key = this.currToken.literal;
+				this.advance();
 				break;
 			case TokenType.IDENTIFIER:
 				if (this.currToken.literal.includes("+")) {
@@ -173,6 +174,7 @@ class Parser {
 
 				part.type = "alphanumeric";
 				part.key = this.currToken.literal;
+				this.advance();
 				break;
 			case TokenType.DOUBLE_QUOTE:
 				part.type = "string";
@@ -182,7 +184,6 @@ class Parser {
 				throw new BconfError("expected key", this.currToken);
 		}
 
-		this.advance();
 		return part;
 	}
 
@@ -475,8 +476,16 @@ class Parser {
 			this.advance();
 		}
 
-		const value = validateAndParseNumber(resolvedNumber);
-		return { type, value };
+		try {
+			const value = validateAndParseNumber(resolvedNumber);
+			return { type, value };
+		} catch (error) {
+			if (error instanceof Error) {
+				throw new BconfError(error.message, this.currToken);
+			}
+
+			throw new BconfError(`could not parse number: ${error}`, this.currToken);
+		}
 	}
 
 	/**
@@ -541,6 +550,7 @@ class Parser {
 			case TokenType.NULL:
 			case TokenType.BOOLEAN:
 				value = this.currToken.literal;
+				this.advance();
 				break;
 			default:
 				throw new BconfError(
@@ -549,7 +559,7 @@ class Parser {
 				);
 		}
 
-		if (this.currToken.type !== TokenType.EMBEDDED_VALUE_END) {
+		if (this.currToken.type !== TokenType.RBRACE) {
 			throw new BconfError(`expected '}', got '${this.currToken.literal}'`, this.currToken);
 		}
 
@@ -751,7 +761,7 @@ class Parser {
 				}
 
 				throw new BconfError(
-					`Unexpected identifier as value '${this.currToken.literal}'`,
+					`unexpected identifier as value '${this.currToken.literal}'`,
 					this.currToken
 				);
 			}
@@ -892,8 +902,15 @@ class Parser {
 				}
 			}
 
-			if (isNotRoot && this.currToken.type === TokenType.COMMA) {
-				this.advance();
+			if (this.currToken.type === TokenType.COMMA) {
+				if (isNotRoot) {
+					this.advance();
+				} else {
+					throw new BconfError(
+						"commas are only allowed in objects and arrays",
+						this.currToken
+					);
+				}
 			}
 		}
 

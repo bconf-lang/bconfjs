@@ -44,7 +44,6 @@ export const TokenType = {
 	DOUBLE_QUOTE: "DOUBLE_QUOTE", // "
 	TRIPLE_QUOTE: "TRIPLE_QUOTE", // """
 	EMBEDDED_VALUE_START: "EMBEDDED_VALUE_START", // ${
-	EMBEDDED_VALUE_END: "EMBEDDED_VALUE_END", // }
 	ESCAPE_SEQUENCE: "ESCAPE_SEQUENCE", // Escape sequence in a string
 };
 
@@ -58,10 +57,6 @@ const LexerMode = {
 	DEFAULT: 0,
 	STRING: 1,
 	EMBEDDED_VALUE: 2,
-	// This is essentially an alias for the default mode to ensure objects inside
-	// tag parenthesis are correctly captured, mainly when tags are inside an embedded
-	// value like `"value ${tag({ foo = 1 })}"` since
-	TAGGED_VALUE: 3,
 };
 
 const StringType = {

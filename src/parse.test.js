@@ -832,29 +832,37 @@ describe("Edge Cases", () => {
 describe("Custom Tags and Statements", () => {
 	it("should allow custom tag resolvers", async () => {
 		const result = await parse("val = double(5)", {
-			tags: [
-				{
-					name: "double",
-					resolver: (arg) => {
-						if (typeof arg === "number") return arg * 2;
-						throw new Error("Expected number");
+			resolvers: {
+				tags: [
+					{
+						name: "double",
+						resolver: async (ctx) => {
+							const value = await ctx.next();
+							if (value.success && typeof value.value === "number") {
+								return value.value * 2;
+							}
+
+							throw new Error("Expected number");
+						},
 					},
-				},
-			],
+				],
+			},
 		});
 		assert.deepStrictEqual(result, { val: 10 });
 	});
 
 	it("should allow custom statement resolvers", async () => {
 		const result = await parse("include config", {
-			statements: [
-				{
-					name: "include",
-					resolver: async (args) => {
-						return { action: "push", value: args };
+			resolvers: {
+				statements: [
+					{
+						name: "include",
+						resolver: async () => {
+							return { action: "collect" };
+						},
 					},
-				},
-			],
+				],
+			},
 		});
 		assert.deepStrictEqual(result, { include: [["config"]] });
 	});
@@ -864,14 +872,16 @@ describe("Custom Tags and Statements", () => {
 		await assert.rejects(
 			async () =>
 				await parse("val = failing_tag(1)", {
-					tags: [
-						{
-							name: "failing_tag",
-							resolver: () => {
-								throw new Error(errMessage);
+					resolvers: {
+						tags: [
+							{
+								name: "failing_tag",
+								resolver: () => {
+									throw new Error(errMessage);
+								},
 							},
-						},
-					],
+						],
+					},
 				}),
 			(err) => {
 				assert.ok(err instanceof BconfError);
@@ -887,14 +897,16 @@ describe("Custom Tags and Statements", () => {
 
 	it("should handle errors in custom statement resolvers", async () => {
 		const parsePromise = parse("failing_stmt test", {
-			statements: [
-				{
-					name: "failing_stmt",
-					resolver: async () => {
-						throw new Error("Custom error");
+			resolvers: {
+				statements: [
+					{
+						name: "failing_stmt",
+						resolver: async () => {
+							throw new Error("Custom error");
+						},
 					},
-				},
-			],
+				],
+			},
 		});
 		await assert.rejects(parsePromise, /Custom error/);
 	});
@@ -903,28 +915,32 @@ describe("Custom Tags and Statements", () => {
 describe("Statement Resolvers (import/export/extends)", () => {
 	it("should handle extends statement with merge action", async () => {
 		const result = await parse('extends "./base.bconf"\nkey = 2', {
-			statements: [
-				{
-					name: "extends",
-					resolver: async () => {
-						return { action: "merge", value: { key: 1 } };
+			resolvers: {
+				statements: [
+					{
+						name: "extends",
+						resolver: async () => {
+							return { action: "merge", value: { key: 1 } };
+						},
 					},
-				},
-			],
+				],
+			},
 		});
 		assert.deepStrictEqual(result, { key: 2 });
 	});
 
 	it("should handle statement with discard action", async () => {
 		const result = await parse("ignored_stmt test\nkey = 1", {
-			statements: [
-				{
-					name: "ignored_stmt",
-					resolver: async () => {
-						return { action: "discard" };
+			resolvers: {
+				statements: [
+					{
+						name: "ignored_stmt",
+						resolver: async () => {
+							return { action: "discard" };
+						},
 					},
-				},
-			],
+				],
+			},
 		});
 		assert.deepStrictEqual(result, { key: 1 });
 	});
@@ -934,14 +950,17 @@ describe("Statement Resolvers (import/export/extends)", () => {
 		await assert.rejects(
 			async () =>
 				await parse("stmt test", {
-					statements: [
-						{
-							name: "stmt",
-							resolver: async () => {
-								return { action: "merge", value: ["test"] };
+					resolvers: {
+						statements: [
+							{
+								name: "stmt",
+								// @ts-expect-error actually want to test when the value is not what is expected
+								resolver: async () => {
+									return { action: "merge", value: ["test"] };
+								},
 							},
-						},
-					],
+						],
+					},
 				}),
 			(err) => {
 				assert.ok(err instanceof BconfError);
@@ -1217,7 +1236,7 @@ describe("Error Reporting", () => {
 		}
 	});
 
-	it.only("should report error for unclosed embedded value", async () => {
+	it("should report error for unclosed embedded value", async () => {
 		// invalid number since embedded values can only have primitive values, so
 		// this identifier is treated as a number always (since its not a tag identifier)
 		await assertThrows('"${unclosed', "invalid number");

@@ -1,10 +1,12 @@
-/** @import { Container, Value } from './types.js' */
+/**
+ * @import { Container, Value } from './types.js'
+ * @import { KeyPath } from './values.js'
+ */
 
 import { Token } from "./lexer.js";
-import { KeyPath } from "./values.js";
 
 /**
- * @param {Record<string, unknown>} root
+ * @param {Record<string, Value>} root
  * @param {KeyPath} key
  * @returns {Container}
  */
@@ -15,20 +17,20 @@ export function getParentForKey(root, key) {
 	const parts = key.parts;
 	for (let i = 0; i < parts.length; i++) {
 		const part = parts[i];
+		const next = parts[i + 1];
 		const isLastPart = i === parts.length - 1;
 
-		if (part.key) {
-			if (isLastPart && part.index === null) {
+		if (part.type !== "index") {
+			if (isLastPart) {
 				break;
 			}
 
-			current = ensureContainer(current, part.key, part.index !== null ? "array" : "object");
-		}
-
-		if (part.index !== null) {
-			// `ensureContainer` only accounts for a single key/index, so when
-			// the container has been created, this ensures that indexes which
-			// are attached to keys (eg. `foo[0].bar[0]`) are always padded
+			current = ensureContainer(
+				current,
+				part.key,
+				next?.type === "index" ? "array" : "object",
+			);
+		} else {
 			if (Array.isArray(current)) {
 				while (current.length < part.index) {
 					current.push(null);
@@ -39,14 +41,10 @@ export function getParentForKey(root, key) {
 				break;
 			}
 
-			const nextPart = parts[i + 1];
-			// This is to consider if its a deeply nested property inside an array
-			// (eg. `foo.bar[0].baz` or `foo.bar[0][0]`) so the value can be properly created
-			const isNextPartArrayChain = !nextPart?.key && nextPart.index !== null;
 			current = ensureContainer(
 				current,
 				part.index,
-				isNextPartArrayChain ? "array" : "object",
+				next?.type === "index" ? "array" : "object",
 			);
 		}
 	}
@@ -102,32 +100,27 @@ export function isObject(value) {
  * Safely retrieves a value from the root object using a KeyPath.
  * Returns undefined if any part of the path does not exist or
  * if the structure does not match (e.g. expecting an array but found an object).
- * @param {Record<string, unknown> | Array<unknown>} root - The data structure to traverse
+ * @param {Record<string, Value> | Array<Value>} root - The data structure to traverse
  * @param {KeyPath} path - The parsed KeyPath object
  * @returns {Value | undefined}
  */
 export function getValueAtPath(root, path) {
 	let current = root;
 
-	for (const part of path.parts) {
-		if (part.key) {
+	for (let i = 0; i < path.parts.length; i++) {
+		const part = path.parts[i];
+		if (part.type !== "index") {
 			if (!isObject(current)) {
 				return undefined;
 			}
 
-			current = /** @type {Record<string, unknown>} */ (current[part.key]);
-		}
-
-		if (current === undefined) {
-			return undefined;
-		}
-
-		if (part.index !== null) {
+			current = /** @type {Record<string, Value>} */ (current[part.key]);
+		} else {
 			if (!Array.isArray(current)) {
 				return undefined;
 			}
 
-			current = /** @type {Array<unknown>} */ (current[part.index]);
+			current = /** @type {Array<Value>} */ (current[part.index]);
 		}
 
 		if (current === undefined) {

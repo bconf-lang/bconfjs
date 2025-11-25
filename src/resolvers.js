@@ -1,9 +1,9 @@
 /**
- * @import { TagResolver, StatementResolver, Value } from './types.js'
+ * @import { Value, TagResolver, StatementResolver, ResolverContext } from './types.js'
  */
 
 import { isObject, validateAndParseNumber } from "./utils.js";
-import { KeyPath, Statement } from "./values.js";
+import { Collection, KeyPath, Statement } from "./values.js";
 
 // -------------------------
 // TAG RESOLVERS
@@ -20,28 +20,30 @@ export const BUILT_IN_TAG_RESOLVERS = new Map([
 ]);
 
 /** @type {TagResolver} */
-function refResolver(value, { resolve }) {
-	if (!(value instanceof KeyPath)) {
+async function refResolver({ lookup, next }) {
+	const nextValue = await next();
+	if (!nextValue.success || !(nextValue.value instanceof KeyPath)) {
 		throw new Error("expected key path for 'ref' tag");
 	}
 
-	const resolvedValue = resolve(value);
-	if (resolvedValue === undefined) {
-		throw new Error(`no value exists for at key '${value.serialize()}'`);
+	const resolvedValue = lookup(nextValue.value);
+	if (!resolvedValue.success) {
+		throw new Error(`no value exists for at key '${nextValue.value.serialize()}'`);
 	}
 
-	return resolvedValue;
+	return resolvedValue.value;
 }
 
 /** @type {TagResolver} */
-function envResolver(value, { env }) {
-	if (typeof value !== "string") {
+async function envResolver({ env, next }) {
+	const nextValue = await next();
+	if (!nextValue.success || typeof nextValue.value !== "string") {
 		throw new Error("expected a string value for 'env' tag");
 	}
 
-	const envVariable = env[value];
+	const envVariable = env[nextValue.value];
 	if (envVariable === undefined) {
-		throw new Error(`no environment variable '${value}' is set`);
+		throw new Error(`no environment variable '${nextValue.value}' is set`);
 	}
 
 	// Typecasting should be fine here - if a bad value is passed (ie. non-serializable value)
@@ -50,7 +52,13 @@ function envResolver(value, { env }) {
 }
 
 /** @type {TagResolver} */
-function stringResolver(value) {
+async function stringResolver({ next }) {
+	const nextValue = await next();
+	if (!nextValue.success) {
+		throw new Error("expected a value for 'string' tag");
+	}
+
+	const { value } = nextValue;
 	if (typeof value === "string") {
 		return value;
 	}
@@ -63,7 +71,13 @@ function stringResolver(value) {
 }
 
 /** @type {TagResolver} */
-function numberResolver(value) {
+async function numberResolver({ next }) {
+	const nextValue = await next();
+	if (!nextValue.success) {
+		throw new Error("expected value for 'number' tag");
+	}
+
+	const { value } = nextValue;
 	if (typeof value === "number") {
 		return value;
 	}
@@ -84,7 +98,13 @@ function numberResolver(value) {
 }
 
 /** @type {TagResolver} */
-function intResolver(value) {
+async function intResolver({ next }) {
+	const nextValue = await next();
+	if (!nextValue.success) {
+		throw new Error("expected value for 'int' tag");
+	}
+
+	let { value } = nextValue;
 	if (value === true) {
 		return 1;
 	}
@@ -105,7 +125,13 @@ function intResolver(value) {
 }
 
 /** @type {TagResolver} */
-function floatResolver(value) {
+async function floatResolver({ next }) {
+	const nextValue = await next();
+	if (!nextValue.success) {
+		throw new Error("expected value for 'int' tag");
+	}
+
+	const { value } = nextValue;
 	if (value === true) {
 		return 1.0;
 	}
@@ -128,7 +154,13 @@ function floatResolver(value) {
 }
 
 /** @type {TagResolver} */
-function boolResolver(value) {
+async function boolResolver({ next }) {
+	const nextValue = await next();
+	if (!nextValue.success) {
+		throw new Error("expected value for 'int' tag");
+	}
+
+	const { value } = nextValue;
 	if (typeof value === "boolean") {
 		return value;
 	}
@@ -159,31 +191,42 @@ export const BUILT_IN_STATEMENT_RESOLVERS = new Map([
 ]);
 
 /** @type {StatementResolver} */
-async function importResolver(args, context) {
-	if (args[0] !== "from") {
+async function importResolver(context) {
+	const fromVal = await context.next();
+	if (!fromVal.success) {
 		throw new Error(
-			`expected 'from' to be the second argument in import statements but got '${args[0]}'`,
+			`expected 'from' to be the second argument in import statements but got nothing`,
 		);
 	}
 
-	const filePath = args[1];
-	if (typeof filePath !== "string") {
+	if (fromVal.value !== "from") {
+		throw new Error(
+			`expected 'from' to be the second argument in import statements but got '${fromVal.value}'`,
+		);
+	}
+
+	const filePath = await context.next();
+	if (!filePath.success || typeof filePath.value !== "string") {
 		throw new Error("file path must be a string in import statements");
 	}
-	if (!filePath) {
+	if (!filePath.value) {
 		throw new Error("file path cannot be empty in import statements");
 	}
 
-	const file = await context.loadFile(filePath);
+	const file = await context.loadFile(filePath.value);
 	// TODO: Cache resolved values/variables to avoid parsing every time
 	const { variables } = await context.parse(file);
 
-	const instructions = args[2];
-	if (!isObject(instructions)) {
+	const instructions = await context.next({
+		treatVarsAsKeys: true,
+		varAsKeyPath: true,
+		duplicateKeys: "collect",
+	});
+	if (!instructions.success || !isObject(instructions.value)) {
 		throw new Error("expected object with variables to import");
 	}
 
-	for (const [name, instruction] of Object.entries(instructions)) {
+	for (const [name, instruction] of Object.entries(instructions.value)) {
 		if (!name.startsWith("$") || instruction === false) {
 			continue;
 		}
@@ -192,39 +235,12 @@ async function importResolver(args, context) {
 			throw new Error(`variable '${name}' is not exported from '${filePath}'`);
 		}
 
-		if (context.getVariable(name).found) {
-			throw new Error(
-				`variable '${name}' cannot be imported as it has already been declared`,
-			);
-		}
-
-		if (instruction !== true && !(instruction instanceof Statement)) {
-			throw new Error(`invalid import instruction for '${name}'`);
-		}
-
-		if (instruction instanceof Statement) {
-			// Supporting multiple aliases for the same variable
-			// (eg. { $foo as $bar, $foo as $baz })
-			for (const args of instruction.args) {
-				if (args[0] !== "as") {
-					throw new Error(`expected 'as' for alias statement, got '${args[0]}'`);
-				}
-
-				const alias = args[1];
-				if (typeof alias !== "string" || !alias.startsWith("$")) {
-					throw new Error(`invalid alias name '${alias}', must follow variable syntax`);
-				}
-
-				const success = context.declareVariable(alias, variables[name]);
-				if (!success) {
-					throw new Error(`unexpectedly could not declare variable alias '${alias}'`);
-				}
+		if (instruction instanceof Collection) {
+			for (const value of instruction.collected) {
+				handleImportInstruction(name, value, context, variables);
 			}
 		} else {
-			const success = context.declareVariable(name, variables[name]);
-			if (!success) {
-				throw new Error(`unexpectedly could not declare variable '${name}'`);
-			}
+			handleImportInstruction(name, instruction, context, variables);
 		}
 	}
 
@@ -232,52 +248,152 @@ async function importResolver(args, context) {
 }
 
 /**
+ * @param {string} name
+ * @param {Value} instruction
+ * @param {ResolverContext} context
+ * @param {Record<string, Value>} variables
+ */
+function handleImportInstruction(name, instruction, context, variables) {
+	if (instruction instanceof Statement) {
+		// Supporting multiple aliases for the same variable
+		// (eg. { $foo as $bar, $foo as $baz })
+		for (const [asArg, key] of instruction.args) {
+			if (typeof asArg !== "string" || asArg !== "as") {
+				throw new Error(`expected 'as' for alias statement, got '${asArg}'`);
+			}
+
+			if (!(key instanceof KeyPath)) {
+				throw new Error(`expected alias to be a key path, got '${typeof key}'`);
+			}
+
+			const [alias] = key.parts;
+			if (alias.type !== "variable") {
+				throw new Error(`expected variable key, got ${alias.type}`);
+			}
+			if (!alias.key.startsWith("$")) {
+				throw new Error(`invalid alias name '${alias.key}', must follow variable syntax`);
+			}
+
+			if (context.variables.get(alias.key).found) {
+				throw new Error(
+					`variable '${alias.key}' cannot be imported as it has already been declared`,
+				);
+			}
+
+			const success = context.variables.set(alias.key, variables[name]);
+			if (!success) {
+				throw new Error(`unexpectedly could not declare variable alias '${alias}'`);
+			}
+		}
+	} else {
+		const success = context.variables.set(name, variables[name]);
+		if (!success) {
+			throw new Error(`unexpectedly could not declare variable '${name}'`);
+		}
+	}
+}
+
+/**
  * @type {StatementResolver}
  */
-async function exportResolver(args, context) {
-	if (args[0] !== "vars") {
+async function exportResolver(context) {
+	const varsValue = await context.next();
+	if (!varsValue.success) {
 		throw new Error(
-			`expected 'vars' to be the second argument in export statements but got '${args[0]}'`,
+			`expected 'vars' to be the second argument in export statements but got nothing`,
 		);
 	}
 
-	const variables = args[1];
-	if (!isObject(variables)) {
+	if (varsValue.value !== "vars") {
+		throw new Error(
+			`expected 'vars' to be the second argument in export statements but got '${varsValue.value}'`,
+		);
+	}
+
+	const variables = await context.next({
+		treatVarsAsKeys: true,
+		varAsKeyPath: true,
+		duplicateKeys: "collect",
+	});
+	if (!variables.success || !isObject(variables.value)) {
 		throw new Error("expected object with variables to export");
 	}
 
-	for (const [name, instruction] of Object.entries(variables)) {
+	for (const [name, instruction] of Object.entries(variables.value)) {
 		if (!name.startsWith("$")) {
 			continue;
 		}
 
-		// TODO: Handle aliased exports
-		let value;
-		if (instruction === true) {
-			const resolvedVariable = context.getVariable(name);
-			// No variable with the name exists, its an inline declaration
-			value = resolvedVariable.found ? resolvedVariable.value : true;
+		if (instruction instanceof Collection) {
+			for (const value of instruction.collected) {
+				handleExportInstruction(name, value, context);
+			}
 		} else {
-			// Inline declaration
-			value = /** @type {Value} */ (instruction);
-		}
-
-		const success = context.declareVariable(name, value, { export: true, exportOnly: true });
-		if (!success) {
-			throw new Error(`unexpectedly could not export variable '${name}'`);
+			handleExportInstruction(name, instruction, context);
 		}
 	}
 
 	return { action: "discard" };
 }
 
+/**
+ * @param {string} name
+ * @param {Value} instruction
+ * @param {ResolverContext} context
+ */
+function handleExportInstruction(name, instruction, context) {
+	if (instruction instanceof Statement) {
+		// Supporting multiple aliases for the same variable
+		// (eg. { $foo as $bar, $foo as $baz })
+		for (const [asArg, key] of instruction.args) {
+			if (typeof asArg !== "string" || asArg !== "as") {
+				throw new Error(`expected 'as' for alias statement, got '${asArg}'`);
+			}
+
+			if (!(key instanceof KeyPath)) {
+				throw new Error(`expected alias to be a key path, got '${typeof key}'`);
+			}
+
+			const [alias] = key.parts;
+			if (alias.type !== "variable") {
+				throw new Error(`expected variable key, got ${alias.type}`);
+			}
+			if (!alias.key.startsWith("$")) {
+				throw new Error(`invalid alias name '${alias.key}', must follow variable syntax`);
+			}
+
+			const resolvedVariable = context.variables.get(name);
+			// No variable with the name exists, its an inline declaration
+			const value = resolvedVariable.found ? resolvedVariable.value : true;
+			const success = context.variables.set(alias.key, value, {
+				export: true,
+				exportOnly: true,
+			});
+			if (!success) {
+				throw new Error(`unexpectedly could not export variable '${alias.key}'`);
+			}
+		}
+	} else {
+		const resolvedVariable = context.variables.get(
+			instruction instanceof KeyPath ? instruction : name,
+		);
+		// No variable with the name exists, its an inline declaration
+		const value = resolvedVariable.found ? resolvedVariable.value : true;
+		const success = context.variables.set(name, value, { export: true, exportOnly: true });
+		if (!success) {
+			throw new Error(`unexpectedly could not export variable '${name}'`);
+		}
+	}
+}
+
 /** @type {StatementResolver} */
-async function extendsResolver(args, context) {
-	if (typeof args[0] !== "string") {
+async function extendsResolver(context) {
+	const filePath = await context.next();
+	if (!filePath.success || typeof filePath.value !== "string") {
 		throw new Error("file path must be a string");
 	}
 
-	const file = await context.loadFile(args[0]);
+	const file = await context.loadFile(filePath.value);
 	const { data } = await context.parse(file);
 	return { action: "merge", value: data };
 }

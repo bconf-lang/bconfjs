@@ -1,5 +1,5 @@
 /**
- * @import { Container, Value } from './types.js'
+ * @import { Container, Value } from './index.js'
  * @import { KeyPath } from './values.js'
  */
 

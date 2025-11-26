@@ -1,5 +1,5 @@
 /**
- * @import { Value, TagResolver, StatementResolver, ResolverContext } from './types.js'
+ * @import { Value, TagResolver, StatementResolver, ResolverContext } from './index.js'
  */
 
 import { isObject, validateAndParseNumber } from "./utils.js";

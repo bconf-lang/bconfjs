@@ -1,4 +1,4 @@
-/** @import { FileLoader } from '../types.js' */
+/** @import { FileLoader } from '../index.js' */
 
 /**
  * @param {string} root
@@ -13,10 +13,10 @@ function resolvePath(root, path) {
 export async function resolveFile(root, path, opts = {}) {
 	const finalPath = resolvePath(root, path);
 
-	const { controller = new AbortController(), timeout = 15000, ...rest } = opts;
+	const { controller = new AbortController(), timeoutMS = 15000, ...rest } = opts;
 	const abortTimeout = setTimeout(() => {
 		controller.abort();
-	}, timeout);
+	}, timeoutMS);
 
 	const res = await fetch(finalPath, { signal: controller.signal, ...rest });
 	clearTimeout(abortTimeout);

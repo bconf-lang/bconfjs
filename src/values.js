@@ -1,4 +1,4 @@
-/** @import { Key, Value } from './types.js' */
+/** @import { Key, Value } from './index.js' */
 
 import { isObject } from "./utils.js";
 

@@ -7,7 +7,7 @@ import { BconfError } from "./error.js";
  * Helper to assert that parsing throws an error
  * @param {string} input
  * @param {string=} messageMatch
- * @param {import("./types.js").ParseOptions=} opts
+ * @param {import("./index.js").ParseOptions=} opts
  */
 async function assertThrows(input, messageMatch, opts) {
 	await assert.rejects(

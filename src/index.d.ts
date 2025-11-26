@@ -76,11 +76,7 @@ export type ParseResult<T extends Value = SerializableValue> = {
 
 export type TagResolver = (context: ResolverContext) => Promise<Value>;
 export type StatementResolver = (context: ResolverContext) => Promise<StatementAction>;
-export type FileLoader = (
-	rootDir: string,
-	path: string,
-	args?: FileLoaderArgs,
-) => Promise<string> | string;
+export type FileLoader = (rootDir: string, path: string, args?: FileLoaderArgs) => Promise<string>;
 
 export type ResolverContext = {
 	/**

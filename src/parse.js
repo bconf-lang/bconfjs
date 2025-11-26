@@ -1,5 +1,5 @@
 /**
- * @import { Key, Operation, ParsedNumber, Value, NextArgs, ResolverContext, StatementResolver, TagResolver, ParseOptions, FileLoader, StatementAction, Container, ParseResult, SerializableValue } from './types.js'
+ * @import { Key, Operation, ParsedNumber, Value, NextArgs, ResolverContext, StatementResolver, TagResolver, ParseOptions, FileLoader, StatementAction, Container, ParseResult, SerializableValue } from './index.js'
  * @import { Token } from './lexer.js'
  */
 

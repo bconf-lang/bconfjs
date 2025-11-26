@@ -21,7 +21,8 @@
 		"rules": {
 			"recommended": true,
 			"suspicious": {
-				"noTemplateCurlyInString": "off"
+				"noTemplateCurlyInString": "off",
+				"noConsole": "warn"
 			},
 			"style": {
 				"useTemplate": "off"

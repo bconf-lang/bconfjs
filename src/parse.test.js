@@ -493,10 +493,7 @@ describe("Tags", () => {
 	});
 
 	it("should reject ref() to undefined key", async () => {
-		await assertThrows(
-			"val = ref(undefined.key)",
-			"no value exists for at key 'undefined.key'",
-		);
+		await assertThrows("val = ref(undefined.key)", "no value exists at key 'undefined.key'");
 	});
 
 	it("should parse env() tag", async () => {

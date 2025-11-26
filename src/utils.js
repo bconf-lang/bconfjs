@@ -137,6 +137,10 @@ export function getValueAtPath(root, path) {
  * @throws {Error}
  */
 export function validateAndParseNumber(input) {
+	if (input === "") {
+		throw new Error("invalid number");
+	}
+
 	if (input.charAt(0) === "_" || input.charAt(input.length - 1) === "_") {
 		throw new Error("cannot have leading or trailing underscores for number");
 	}

@@ -22,13 +22,22 @@ export const BUILT_IN_TAG_RESOLVERS = new Map([
 /** @type {TagResolver} */
 async function refResolver({ lookup, next }) {
 	const nextValue = await next();
-	if (!nextValue.success || !(nextValue.value instanceof KeyPath)) {
+	if (
+		!nextValue.success ||
+		(!(nextValue.value instanceof KeyPath) && typeof nextValue.value !== "number")
+	) {
 		throw new Error("expected key path for 'ref' tag");
 	}
 
-	const resolvedValue = lookup(nextValue.value);
+	const resolvedValue = lookup(
+		typeof nextValue.value === "number"
+			? new KeyPath([{ type: "alphanumeric", key: String(nextValue.value) }])
+			: nextValue.value,
+	);
 	if (!resolvedValue.success) {
-		throw new Error(`no value exists for at key '${nextValue.value.serialize()}'`);
+		throw new Error(
+			`no value exists at key '${typeof nextValue.value === "number" ? nextValue.value : nextValue.value.serialize()}'`,
+		);
 	}
 
 	return resolvedValue.value;

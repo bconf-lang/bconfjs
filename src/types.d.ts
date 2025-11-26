@@ -29,7 +29,7 @@ export type ParseOptions = {
 	 * Variables to inject at the root of the file when parsing.
 	 * NOTE: These are treated like regular variables and can be overwritten
 	 */
-	variables?: Record<string, unknown>;
+	variables?: Record<string, Value>;
 	/**
 	 * Environment variables to use. This defaults to `process.env` for
 	 * non-browser environments, and `window` for browsers
@@ -49,6 +49,29 @@ export type ParseOptions = {
 	 * for browser environments
 	 */
 	loader?: FileLoader;
+	/**
+	 * If the parsed results should unwrap internal types into their
+	 * native types. For example, an unresolved tag like `custom_tag(123)`
+	 * is internally stored as a `Tag` class which is then unwrapped
+	 * into `["custom_tag", 123]` at the end
+	 *
+	 * This is useful for implementing custom logic which may require
+	 * the full file to be parsed
+	 *
+	 * @default true
+	 */
+	unwrap?: boolean;
+};
+
+export type ParseResult<T extends Value = SerializableValue> = {
+	/**
+	 * The resolved data for the input
+	 */
+	data: Record<string, T>;
+	/**
+	 * Exported variables for the input
+	 */
+	variables: Record<string, T>;
 };
 
 export type TagResolver = (context: ResolverContext) => Promise<Value>;
@@ -128,7 +151,10 @@ export type ResolverContext = {
 	 * Parse the given input. This input will be parsed with the same options
 	 * provided to the parser
 	 */
-	parse: (input: string) => Promise<ParsedValues>;
+	parse: <TOptions extends ParseOptions>(
+		input: string,
+		opts?: TOptions,
+	) => Promise<ParseResult<TOptions["unwrap"] extends true ? SerializableValue : Value>>;
 };
 
 export type SetVariableArgs = {
@@ -268,17 +294,6 @@ export type StatementAction =
 			 */
 			value?: Value;
 	  };
-
-export type ParsedValues = {
-	/**
-	 * The parsed document
-	 */
-	data: Record<string, Value>;
-	/**
-	 * Exported variables from the document
-	 */
-	variables: Record<string, Value>;
-};
 
 export type Key =
 	| {

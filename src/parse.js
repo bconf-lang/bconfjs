@@ -1,5 +1,5 @@
 /**
- * @import { Key, Operation, ParsedNumber, Value, NextArgs, ResolverContext, StatementResolver, TagResolver, ParseOptions, FileLoader, StatementAction, Container } from './types.js'
+ * @import { Key, Operation, ParsedNumber, Value, NextArgs, ResolverContext, StatementResolver, TagResolver, ParseOptions, FileLoader, StatementAction, Container, ParseResult, SerializableValue } from './types.js'
  * @import { Token } from './lexer.js'
  */
 
@@ -20,8 +20,10 @@ const EXPONENT_REGEX = /[eE]/;
 
 /**
  * Parse a bconf file
+ * @template {ParseOptions} TOptions
  * @param {string} input Input bconf file
- * @param {ParseOptions=} opts Options for parsing
+ * @param {TOptions} [opts] Options for parsing
+ * @returns {Promise<ParseResult<TOptions['unwrap'] extends true ? SerializableValue : Value>>}
  */
 export function parse(input, opts) {
 	const parser = new Parser(input, opts);
@@ -30,6 +32,7 @@ export function parse(input, opts) {
 
 const browser = typeof window !== "undefined";
 const defaultLoader = await (browser ? import("./browser/files.js") : import("./node/files.js"));
+const defaultEnv = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
 
 class Scope {
 	/** @type {Record<string, Value>} */ variables = {};
@@ -69,42 +72,60 @@ class Scope {
 }
 
 class Parser {
-	/** @type {Array<Token>} */ tokens;
-	/** @type {Token} */ currToken;
-	/** @type {number} */ pos;
+	// ----------------------
+	// ROOT
+	// ----------------------
+	/** @type {ParseOptions} */ opts;
 	/** @type {Record<string, Value>} */ result = {};
+
+	// ----------------------
+	// TOKENS
+	// ----------------------
+	/** @type {Array<Token>} */ tokens;
+	/** @type {Token} */ currentToken;
+	/** @type {number} */ position;
+
+	// ----------------------
+	// VARIABLES
+	// ----------------------
 	/** @type {Scope} */ rootScope = new Scope(null);
 	/** @type {Scope} */ currentScope = this.rootScope;
-
-	/** @type {Map<string, StatementResolver>} */ statementResolvers = new Map(
-		BUILT_IN_STATEMENT_RESOLVERS,
-	);
-	/** @type {Map<string, TagResolver>} */ tagResolvers = new Map(BUILT_IN_TAG_RESOLVERS);
-	env = /** @type {Record<string, unknown>} */ (browser ? window : process.env);
 	/** @type {Record<string, Value>} */ exportedVariables = {};
+
+	// ----------------------
+	// RESOLVERS / FILES
+	// ----------------------
+	resolvers = {
+		/** @type {Map<string, StatementResolver>} */ statements: new Map(
+			BUILT_IN_STATEMENT_RESOLVERS,
+		),
+		/** @type {Map<string, TagResolver>} */ tags: new Map(BUILT_IN_TAG_RESOLVERS),
+	};
+	/** @type {Record<string, unknown>} */ env = defaultEnv;
 	/** @type {FileLoader} */ fileLoader = defaultLoader.resolveFile;
 	/** @type {string} */ rootFilePath = browser ? "/" : import.meta.dirname;
-
-	/** @type {NextArgs} */ nextValueParsingOpts = {};
 
 	/**
 	 * @param {string} input The file to parse
 	 * @param {ParseOptions=} opts Options for parsing
 	 */
 	constructor(input, opts) {
+		this.opts = opts ?? {};
+		this.opts.unwrap ??= true;
+
 		if (opts?.env) {
 			this.env = opts.env;
 		}
 
 		if (opts?.resolvers?.tags) {
 			for (const tag of opts.resolvers.tags) {
-				this.tagResolvers.set(tag.name, tag.resolver);
+				this.resolvers.tags.set(tag.name, tag.resolver);
 			}
 		}
 
 		if (opts?.resolvers?.statements) {
 			for (const statement of opts.resolvers.statements) {
-				this.statementResolvers.set(statement.name, statement.resolver);
+				this.resolvers.statements.set(statement.name, statement.resolver);
 			}
 		}
 
@@ -116,19 +137,28 @@ class Parser {
 			this.fileLoader = opts.loader;
 		}
 
-		this.pos = 0;
+		if (opts?.variables) {
+			for (const [name, value] of Object.entries(opts.variables)) {
+				this.currentScope.define(name, value);
+			}
+		}
+
+		this.position = 0;
 		this.tokens = tokenize(input).filter(
 			(t) => t.type !== TokenType.COMMENT && t.type !== TokenType.WHITESPACE,
 		);
-		this.currToken = this.tokens[this.pos];
+		this.currentToken = this.tokens[this.position];
 	}
 
+	// ----------------------
+	// GENERAL
+	// ----------------------
 	/**
 	 * @param {number=} n The number of tokens to peek ahead
 	 * @returns {Token}
 	 */
 	peek(n = 1) {
-		const nextIndex = this.pos + n;
+		const nextIndex = this.position + n;
 		if (nextIndex >= this.tokens.length) {
 			return this.tokens[this.tokens.length - 1];
 		}
@@ -137,148 +167,16 @@ class Parser {
 	}
 
 	advance() {
-		this.currToken = this.peek();
-		this.pos++;
+		this.currentToken = this.peek();
+		this.position++;
 	}
 
 	isTag() {
 		return (
-			this.currToken.type === TokenType.IDENTIFIER &&
-			!this.currToken.literal?.includes("+") &&
+			this.currentToken.type === TokenType.IDENTIFIER &&
+			!this.currentToken.literal?.includes("+") &&
 			this.peek().type === TokenType.LPAREN
 		);
-	}
-
-	/**
-	 * @param {NextArgs} args
-	 * @returns {Promise<Key>}
-	 */
-	async parseKeyPart(args) {
-		if (!this.currToken.literal) {
-			throw new BconfError("expected a valid key but got an empty literal", this.currToken);
-		}
-
-		if (this.currToken.type === TokenType.DOT) {
-			this.advance();
-		}
-
-		switch (this.currToken.type) {
-			case TokenType.VARIABLE: {
-				/** @type {Key} */
-				const key = { type: "variable", key: this.currToken.literal };
-				this.advance();
-				return key;
-			}
-			case TokenType.IDENTIFIER: {
-				if (this.currToken.literal.includes("+")) {
-					throw new BconfError("invalid key", this.currToken);
-				}
-				/** @type {Key} */
-				const key = { type: "alphanumeric", key: this.currToken.literal };
-				this.advance();
-				return key;
-			}
-			case TokenType.DOUBLE_QUOTE: {
-				const value = await this.parseString(args);
-				if (!value) {
-					throw new BconfError("unexpected empty key part", this.currToken);
-				}
-
-				return { type: "alphanumeric", key: value };
-			}
-			case TokenType.INDEX_LBRACKET: {
-				this.advance(); // Consume `[`
-				if (this.currToken.type !== TokenType.IDENTIFIER) {
-					throw new BconfError("expected number for array index", this.currToken);
-				}
-
-				const index = this.parseNumber();
-				if (index.type === "float") {
-					throw new BconfError("expected array index to be an integer", this.currToken);
-				}
-
-				if (index.value < 0) {
-					throw new BconfError(
-						"expected non-negative integer for array index",
-						this.currToken,
-					);
-				}
-
-				if (this.currToken.type !== TokenType.RBRACKET) {
-					throw new BconfError("expected ']'", this.currToken);
-				}
-
-				this.advance(); // Consume `]`
-				return { type: "index", index: index.value };
-			}
-			default:
-				throw new BconfError("expected key", this.currToken);
-		}
-	}
-
-	/**
-	 * @param {NextArgs} args
-	 * @returns {Promise<KeyPath>}
-	 */
-	async parseKey(args) {
-		const path = new KeyPath();
-		path.addKey(await this.parseKeyPart(args));
-
-		while (
-			this.currToken.type === TokenType.DOT ||
-			this.currToken.type === TokenType.INDEX_LBRACKET
-		) {
-			const key = await this.parseKeyPart(args);
-
-			// Variable keys can only be the first key
-			if (key.type === "variable") {
-				throw new BconfError("unexpected variable key in key sequence", this.currToken);
-			}
-
-			path.addKey(key);
-		}
-
-		return path;
-	}
-
-	/**
-	 * @param {string} stopToken
-	 * @returns {Operation}
-	 */
-	parseOperator(stopToken) {
-		switch (this.currToken.type) {
-			case TokenType.APPEND:
-				this.advance();
-				return "append";
-			case TokenType.ASSIGN:
-				this.advance();
-				return "assign";
-			case TokenType.LBRACE:
-				return "object-shorthand";
-			case TokenType.NEWLINE:
-			case TokenType.EOF:
-			case stopToken:
-				return "true-shorthand";
-			// This accounts for trailing commas in objects like `{foo,}`
-			case TokenType.COMMA:
-				if (stopToken === TokenType.EOF) {
-					throw new BconfError("unexpected end of data", this.currToken);
-				}
-				return "true-shorthand";
-			case TokenType.IDENTIFIER:
-			case TokenType.BOOLEAN:
-			case TokenType.NULL:
-			case TokenType.LBRACKET:
-			case TokenType.DOUBLE_QUOTE:
-			case TokenType.TRIPLE_QUOTE:
-				// Don't advance since its an actual value and should be handled by their own parsing methods
-				return "statement";
-			default:
-				throw new BconfError(
-					`unexpected operator '${this.currToken.literal}'`,
-					this.currToken,
-				);
-		}
 	}
 
 	/**
@@ -289,18 +187,17 @@ class Parser {
 	 */
 	createResolverContext(stopToken, args, type) {
 		return {
-			// TODO
-			file: new URL("file://url"),
+			file: this.opts.file,
 			env: this.env,
 			loadFile: (path, args) => this.fileLoader(this.rootFilePath, path, args),
 			scope: this.currentScope === this.rootScope ? "root" : "object",
 			nextArgs: args,
 			next: async (newArgs) => {
 				if (
-					this.currToken.type === stopToken ||
-					this.currToken.type === TokenType.NEWLINE ||
-					this.currToken.type === TokenType.EOF ||
-					this.currToken.type === TokenType.COMMA
+					this.currentToken.type === stopToken ||
+					this.currentToken.type === TokenType.NEWLINE ||
+					this.currentToken.type === TokenType.EOF ||
+					this.currentToken.type === TokenType.COMMA
 				) {
 					return { success: false };
 				}
@@ -363,28 +260,177 @@ class Parser {
 					return true;
 				},
 			},
-			parse: async (input) => {
-				const parser = new Parser(input);
-				await parser.parse();
-				return { data: parser.result, variables: parser.exportedVariables };
-			},
+			parse: (input, opts) =>
+				/** @type {Promise<ParseResult>} */ (
+					parse(input, { ...this.opts, ...opts, unwrap: opts?.unwrap ?? false })
+				),
 		};
 	}
 
+	// ----------------------
+	// KEYS
+	// ----------------------
+	/**
+	 * @param {NextArgs} args
+	 * @returns {Promise<Key>}
+	 */
+	async parseKeyPart(args) {
+		if (!this.currentToken.literal) {
+			throw new BconfError(
+				"expected a valid key but got an empty literal",
+				this.currentToken,
+			);
+		}
+
+		if (this.currentToken.type === TokenType.DOT) {
+			this.advance();
+		}
+
+		switch (this.currentToken.type) {
+			case TokenType.VARIABLE: {
+				/** @type {Key} */
+				const key = { type: "variable", key: this.currentToken.literal };
+				this.advance();
+				return key;
+			}
+			case TokenType.IDENTIFIER: {
+				if (this.currentToken.literal.includes("+")) {
+					throw new BconfError("invalid key", this.currentToken);
+				}
+				/** @type {Key} */
+				const key = { type: "alphanumeric", key: this.currentToken.literal };
+				this.advance();
+				return key;
+			}
+			case TokenType.DOUBLE_QUOTE: {
+				const value = await this.parseString(args);
+				if (!value) {
+					throw new BconfError("unexpected empty key part", this.currentToken);
+				}
+
+				return { type: "alphanumeric", key: value };
+			}
+			case TokenType.INDEX_LBRACKET: {
+				this.advance(); // Consume `[`
+				if (this.currentToken.type !== TokenType.IDENTIFIER) {
+					throw new BconfError("expected number for array index", this.currentToken);
+				}
+
+				const index = this.parseNumber();
+				if (index.type === "float") {
+					throw new BconfError(
+						"expected array index to be an integer",
+						this.currentToken,
+					);
+				}
+
+				if (index.value < 0) {
+					throw new BconfError(
+						"expected non-negative integer for array index",
+						this.currentToken,
+					);
+				}
+
+				if (this.currentToken.type !== TokenType.RBRACKET) {
+					throw new BconfError("expected ']'", this.currentToken);
+				}
+
+				this.advance(); // Consume `]`
+				return { type: "index", index: index.value };
+			}
+			default:
+				throw new BconfError("expected key", this.currentToken);
+		}
+	}
+
+	/**
+	 * @param {NextArgs} args
+	 * @returns {Promise<KeyPath>}
+	 */
+	async parseKey(args) {
+		const path = new KeyPath();
+		path.addKey(await this.parseKeyPart(args));
+
+		while (
+			this.currentToken.type === TokenType.DOT ||
+			this.currentToken.type === TokenType.INDEX_LBRACKET
+		) {
+			const key = await this.parseKeyPart(args);
+
+			// Variable keys can only be the first key
+			if (key.type === "variable") {
+				throw new BconfError("unexpected variable key in key sequence", this.currentToken);
+			}
+
+			path.addKey(key);
+		}
+
+		return path;
+	}
+
+	// ----------------------
+	// OPERATORS
+	// ----------------------
+	/**
+	 * @param {string} stopToken
+	 * @returns {Operation}
+	 */
+	parseOperator(stopToken) {
+		switch (this.currentToken.type) {
+			case TokenType.APPEND:
+				this.advance();
+				return "append";
+			case TokenType.ASSIGN:
+				this.advance();
+				return "assign";
+			case TokenType.LBRACE:
+				return "object-shorthand";
+			case TokenType.NEWLINE:
+			case TokenType.EOF:
+			case stopToken:
+				return "true-shorthand";
+			// This accounts for trailing commas in objects like `{foo,}`
+			case TokenType.COMMA:
+				if (stopToken === TokenType.EOF) {
+					throw new BconfError("unexpected end of data", this.currentToken);
+				}
+				return "true-shorthand";
+			case TokenType.IDENTIFIER:
+			case TokenType.BOOLEAN:
+			case TokenType.NULL:
+			case TokenType.LBRACKET:
+			case TokenType.DOUBLE_QUOTE:
+			case TokenType.TRIPLE_QUOTE:
+				// Don't advance since its an actual value and should be handled by their own parsing methods
+				return "statement";
+			default:
+				throw new BconfError(
+					`unexpected operator '${this.currentToken.literal}'`,
+					this.currentToken,
+				);
+		}
+	}
+
+	// ----------------------
+	// TAGS
+	// ----------------------
 	/**
 	 * @param {NextArgs} args
 	 * @returns {Promise<Value>}
 	 */
 	async resolveTag(args) {
-		if (!this.currToken.literal) {
-			throw new BconfError("unexpected empty tag name", this.currToken);
+		if (!this.currentToken.literal) {
+			throw new BconfError("unexpected empty tag name", this.currentToken);
 		}
 
-		const tagName = this.currToken.literal;
+		const tagName = this.currentToken.literal;
 		this.advance(); // Consume tag name
 
-		if (this.currToken.type !== TokenType.LPAREN) {
-			throw new BconfError(`expected '(', got '${this.currToken.literal}'`, this.currToken);
+		if (this.currentToken.type !== TokenType.LPAREN) {
+			throw new BconfError(
+				`expected '(', got '${this.currentToken.literal}'`,
+				this.currentToken,
+			);
 		}
 		this.advance(); // Consume `(`
 
@@ -392,7 +438,7 @@ class Parser {
 		const newArgs = { ...args, identifiersAsValue: "keypath" };
 		/** @type {Value} */
 		let value;
-		const resolver = this.tagResolvers.get(tagName);
+		const resolver = this.resolvers.tags.get(tagName);
 		if (resolver) {
 			try {
 				value = await resolver(
@@ -400,23 +446,29 @@ class Parser {
 				);
 			} catch (error) {
 				if (error instanceof Error) {
-					throw new BconfError(error.message, this.currToken);
+					throw new BconfError(error.message, this.currentToken);
 				}
 
-				throw new BconfError("unexpected error when resolving tag", this.currToken);
+				throw new BconfError("unexpected error when resolving tag", this.currentToken);
 			}
 		} else {
 			value = await this.parseValue(newArgs);
 		}
 
-		if (this.currToken.type !== TokenType.RPAREN) {
-			throw new BconfError(`expected ')', got '${this.currToken.type}'`, this.currToken);
+		if (this.currentToken.type !== TokenType.RPAREN) {
+			throw new BconfError(
+				`expected ')', got '${this.currentToken.type}'`,
+				this.currentToken,
+			);
 		}
 
 		this.advance(); // Consume `)`
 		return resolver ? value : new Tag(tagName, value);
 	}
 
+	// ----------------------
+	// STATEMENTS
+	// ----------------------
 	/**
 	 * @param {NextArgs} args
 	 * @returns {Promise<Value>}
@@ -425,13 +477,19 @@ class Parser {
 		// Enforcing that statements strictly follow what is allowed in a statement
 		// so there is no ambiguity between what some statement resolvers allow, and
 		// what others don't
-		if (this.currToken.type === TokenType.IDENTIFIER) {
+		if (this.currentToken.type === TokenType.IDENTIFIER) {
 			const value = await this.parseValue({ ...args, identifiersAsValue: "literal" });
-			if (this.currToken.type === TokenType.DOT) {
-				throw new BconfError("dotted keys are not allowed in statements", this.currToken);
+			if (this.currentToken.type === TokenType.DOT) {
+				throw new BconfError(
+					"dotted keys are not allowed in statements",
+					this.currentToken,
+				);
 			}
-			if (this.currToken.type === TokenType.INDEX_LBRACKET) {
-				throw new BconfError("array indexes are not allowed in statements", this.currToken);
+			if (this.currentToken.type === TokenType.INDEX_LBRACKET) {
+				throw new BconfError(
+					"array indexes are not allowed in statements",
+					this.currentToken,
+				);
 			}
 
 			return value;
@@ -450,12 +508,12 @@ class Parser {
 		const values = [];
 
 		while (
-			this.currToken.type !== TokenType.NEWLINE &&
-			this.currToken.type !== TokenType.EOF &&
-			this.currToken.type !== stopToken &&
+			this.currentToken.type !== stopToken &&
+			this.currentToken.type !== TokenType.NEWLINE &&
+			this.currentToken.type !== TokenType.EOF &&
 			// Ensuring that controls is always handed back to parseBlock to determine
 			// how the comma should be handled (throw or consume)
-			this.currToken.type !== TokenType.COMMA
+			this.currentToken.type !== TokenType.COMMA
 		) {
 			values.push(await this.parseStatementValue(args));
 		}
@@ -473,11 +531,11 @@ class Parser {
 		if (key.parts[0].type === "index") {
 			throw new BconfError(
 				"expected variable key as first key, got index key",
-				this.currToken,
+				this.currentToken,
 			);
 		}
 
-		const resolver = this.statementResolvers.get(key.parts[0].key);
+		const resolver = this.resolvers.statements.get(key.parts[0].key);
 		if (!resolver) {
 			return { action: "collect" };
 		}
@@ -486,25 +544,28 @@ class Parser {
 			return await resolver(this.createResolverContext(stopToken, args, "statement"));
 		} catch (error) {
 			if (error instanceof Error) {
-				throw new BconfError(error.message, this.currToken);
+				throw new BconfError(error.message, this.currentToken);
 			}
 
-			throw new BconfError("unexpected error while resolving statement", this.currToken);
+			throw new BconfError("unexpected error while resolving statement", this.currentToken);
 		}
 	}
 
+	// ----------------------
+	// NUMBERS
+	// ----------------------
 	/**
 	 * @returns {ParsedNumber}
 	 */
 	parseNumber() {
-		if (this.currToken.type !== TokenType.IDENTIFIER) {
+		if (this.currentToken.type !== TokenType.IDENTIFIER) {
 			throw new BconfError(
-				`expected number but got '${this.currToken.literal}'`,
-				this.currToken,
+				`expected number but got '${this.currentToken.literal}'`,
+				this.currentToken,
 			);
 		}
 
-		let resolvedNumber = this.currToken.literal ?? "";
+		let resolvedNumber = this.currentToken.literal ?? "";
 		/** @type {ParsedNumber['type']} */
 		let type = "integer";
 		if (EXPONENT_REGEX.test(resolvedNumber)) {
@@ -516,15 +577,15 @@ class Parser {
 		// Building a float. Any exponents without a fractional (ie. `123e4`)
 		// should already be collected by the first token, so we only need to check
 		// for the DOT token to see if there is a fraction present
-		if (this.currToken.type === TokenType.DOT) {
+		if (this.currentToken.type === TokenType.DOT) {
 			type = "float";
 			resolvedNumber += ".";
 			this.advance();
-			if (this.currToken.type !== TokenType.IDENTIFIER) {
-				throw new BconfError("unterminated float", this.currToken);
+			if (this.currentToken.type !== TokenType.IDENTIFIER) {
+				throw new BconfError("unterminated float", this.currentToken);
 			}
 
-			resolvedNumber += this.currToken.literal ?? "";
+			resolvedNumber += this.currentToken.literal ?? "";
 			this.advance();
 		}
 
@@ -533,13 +594,16 @@ class Parser {
 			return { type, value };
 		} catch (error) {
 			if (error instanceof Error) {
-				throw new BconfError(error.message, this.currToken);
+				throw new BconfError(error.message, this.currentToken);
 			}
 
-			throw new BconfError(`could not parse number: ${error}`, this.currToken);
+			throw new BconfError(`could not parse number: ${error}`, this.currentToken);
 		}
 	}
 
+	// ----------------------
+	// STRINGS
+	// ----------------------
 	/**
 	 * @param {NextArgs} args
 	 * @returns {Promise<string>}
@@ -547,16 +611,16 @@ class Parser {
 	async parseEmbeddedValue(args) {
 		this.advance(); // Consume `${`
 
-		if (!this.currToken.literal) {
+		if (!this.currentToken.literal) {
 			throw new BconfError(
-				`expected expression, got '${this.currToken.literal}'`,
-				this.currToken,
+				`expected expression, got '${this.currentToken.literal}'`,
+				this.currentToken,
 			);
 		}
 
 		/** @type {string} */
 		let value;
-		switch (this.currToken.type) {
+		switch (this.currentToken.type) {
 			case TokenType.DOUBLE_QUOTE:
 			case TokenType.TRIPLE_QUOTE:
 				value = await this.parseString(args);
@@ -567,7 +631,7 @@ class Parser {
 				if (!variable.found) {
 					throw new BconfError(
 						`could not resolve variable '${key.serialize()}'`,
-						this.currToken,
+						this.currentToken,
 					);
 				}
 
@@ -579,7 +643,7 @@ class Parser {
 				) {
 					throw new BconfError(
 						"variable must resolve to a primitive in embedded values",
-						this.currToken,
+						this.currentToken,
 					);
 				}
 
@@ -592,7 +656,7 @@ class Parser {
 					if (parsed instanceof Tag || isObject(parsed) || Array.isArray(parsed)) {
 						throw new BconfError(
 							"tags must resolve to a primitive in embedded values",
-							this.currToken,
+							this.currentToken,
 						);
 					}
 
@@ -603,18 +667,21 @@ class Parser {
 				break;
 			case TokenType.NULL:
 			case TokenType.BOOLEAN:
-				value = this.currToken.literal;
+				value = this.currentToken.literal;
 				this.advance();
 				break;
 			default:
 				throw new BconfError(
 					"only primitive values are allowed in embedded values",
-					this.currToken,
+					this.currentToken,
 				);
 		}
 
-		if (this.currToken.type !== TokenType.RBRACE) {
-			throw new BconfError(`expected '}', got '${this.currToken.literal}'`, this.currToken);
+		if (this.currentToken.type !== TokenType.RBRACE) {
+			throw new BconfError(
+				`expected '}', got '${this.currentToken.literal}'`,
+				this.currentToken,
+			);
 		}
 
 		this.advance(); // Consume `}`
@@ -622,11 +689,11 @@ class Parser {
 	}
 
 	parseEscapedValue() {
-		if (!this.currToken.literal) {
-			throw new BconfError("unexpected empty value", this.currToken);
+		if (!this.currentToken.literal) {
+			throw new BconfError("unexpected empty value", this.currentToken);
 		}
 
-		const code = this.currToken.literal[1];
+		const code = this.currentToken.literal[1];
 		switch (code) {
 			case '"':
 				return '"';
@@ -646,22 +713,22 @@ class Parser {
 				return "\t";
 			case "u":
 			case "U": {
-				const codePoint = parseInt(this.currToken.literal.substring(2), 16);
+				const codePoint = parseInt(this.currentToken.literal.substring(2), 16);
 				if (Number.isNaN(codePoint)) {
-					throw new BconfError("invalid escaped unicode code point", this.currToken);
+					throw new BconfError("invalid escaped unicode code point", this.currentToken);
 				}
 
 				try {
 					return String.fromCodePoint(codePoint);
 				} catch {
-					throw new BconfError("invalid escaped unicode code point", this.currToken);
+					throw new BconfError("invalid escaped unicode code point", this.currentToken);
 				}
 			}
 
 			default:
 				throw new BconfError(
-					`invalid escape sequence '${this.currToken.literal}'`,
-					this.currToken,
+					`invalid escape sequence '${this.currentToken.literal}'`,
+					this.currentToken,
 				);
 		}
 	}
@@ -671,14 +738,14 @@ class Parser {
 	 * @returns {Promise<string>}
 	 */
 	async parseString(args) {
-		const boundary = this.currToken.type;
+		const boundary = this.currentToken.type;
 		this.advance(); // Consume `"` or `"""`
 
 		let resolved = "";
-		while (this.currToken.type !== boundary) {
-			switch (this.currToken.type) {
+		while (this.currentToken.type !== boundary) {
+			switch (this.currentToken.type) {
 				case TokenType.STRING_CONTENT:
-					resolved += this.currToken.literal ?? "";
+					resolved += this.currentToken.literal ?? "";
 					this.advance();
 					break;
 				case TokenType.EMBEDDED_VALUE_START:
@@ -689,14 +756,14 @@ class Parser {
 					this.advance();
 					break;
 				default:
-					throw new BconfError("unexpected value in string", this.currToken);
+					throw new BconfError("unexpected value in string", this.currentToken);
 			}
 		}
 
-		if (this.currToken.type !== boundary) {
+		if (this.currentToken.type !== boundary) {
 			throw new BconfError(
-				`expected ${boundary}, got ${this.currToken.literal}`,
-				this.currToken,
+				`expected ${boundary}, got ${this.currentToken.literal}`,
+				this.currentToken,
 			);
 		}
 
@@ -704,6 +771,9 @@ class Parser {
 		return resolved;
 	}
 
+	// ----------------------
+	// OBJECTS
+	// ----------------------
 	/**
 	 * @param {NextArgs} args
 	 * @returns {Promise<Record<string, Value>>}
@@ -714,14 +784,20 @@ class Parser {
 		/** @type {Record<string, Value>} */
 		const obj = {};
 		await this.parseBlock(TokenType.RBRACE, obj, args);
-		if (this.currToken.type !== TokenType.RBRACE) {
-			throw new BconfError(`expected '}', got ${this.currToken.literal}`, this.currToken);
+		if (this.currentToken.type !== TokenType.RBRACE) {
+			throw new BconfError(
+				`expected '}', got ${this.currentToken.literal}`,
+				this.currentToken,
+			);
 		}
 
 		this.advance(); // Consume `}`
 		return obj;
 	}
 
+	// ----------------------
+	// ARRAYS
+	// ----------------------
 	/**
 	 * @param {NextArgs} args
 	 * @returns {Promise<Array<Value>>}
@@ -732,50 +808,56 @@ class Parser {
 		/** @type {Array<Value>} */
 		const arr = [];
 		while (
-			this.currToken.type !== TokenType.RBRACKET &&
-			this.currToken.type !== TokenType.EOF
+			this.currentToken.type !== TokenType.RBRACKET &&
+			this.currentToken.type !== TokenType.EOF
 		) {
 			// Skip newlines used for formatting
-			while (this.currToken.type === TokenType.NEWLINE) {
+			while (this.currentToken.type === TokenType.NEWLINE) {
 				this.advance();
 			}
 
 			// Guarding against cases where its just lots of empty newlines at the end of the array
 			if (
-				this.currToken.type === TokenType.RBRACKET ||
-				this.currToken.type === TokenType.EOF
+				this.currentToken.type === TokenType.RBRACKET ||
+				this.currentToken.type === TokenType.EOF
 			) {
 				break;
 			}
 
 			arr.push(await this.parseValue(args));
 
-			if (this.currToken.type === TokenType.COMMA) {
+			if (this.currentToken.type === TokenType.COMMA) {
 				this.advance();
 			}
 		}
 
-		if (this.currToken.type !== TokenType.RBRACKET) {
-			throw new BconfError(`expected ']', got ${this.currToken.literal}`, this.currToken);
+		if (this.currentToken.type !== TokenType.RBRACKET) {
+			throw new BconfError(
+				`expected ']', got ${this.currentToken.literal}`,
+				this.currentToken,
+			);
 		}
 
 		this.advance(); // Consume `]`
 		return arr;
 	}
 
+	// ----------------------
+	// VALUES
+	// ----------------------
 	/**
 	 * Get the next value until the stop token
 	 * @param {NextArgs} args
 	 * @returns {Promise<Value>}
 	 */
 	async parseValue(args) {
-		switch (this.currToken.type) {
+		switch (this.currentToken.type) {
 			case TokenType.IDENTIFIER: {
 				if (this.isTag()) {
 					return await this.resolveTag(args);
 				}
 
-				if (looksLikeNumber(this.currToken)) {
+				if (looksLikeNumber(this.currentToken)) {
 					return this.parseNumber().value;
 				}
 
@@ -784,21 +866,21 @@ class Parser {
 				}
 
 				if (args.identifiersAsValue === "literal") {
-					const value = this.currToken.literal;
+					const value = this.currentToken.literal;
 					this.advance();
 					return value;
 				}
 
 				throw new BconfError(
-					`unexpected identifier as value '${this.currToken.literal}'`,
-					this.currToken,
+					`unexpected identifier as value '${this.currentToken.literal}'`,
+					this.currentToken,
 				);
 			}
 			case TokenType.NULL:
 				this.advance();
 				return null;
 			case TokenType.BOOLEAN: {
-				const value = this.currToken.literal === Keywords.TRUE;
+				const value = this.currentToken.literal === Keywords.TRUE;
 				this.advance();
 				return value;
 			}
@@ -810,8 +892,8 @@ class Parser {
 			case TokenType.TRIPLE_QUOTE:
 				return await this.parseString(args);
 			case TokenType.VARIABLE: {
-				if (!this.currToken.literal) {
-					throw new BconfError("unexpected empty variable name", this.currToken);
+				if (!this.currentToken.literal) {
+					throw new BconfError("unexpected empty variable name", this.currentToken);
 				}
 
 				const key = await this.parseKey(args);
@@ -823,7 +905,7 @@ class Parser {
 				if (!variable.found) {
 					throw new BconfError(
 						`could not resolve variable '${key.serialize()}'`,
-						this.currToken,
+						this.currentToken,
 					);
 				}
 
@@ -831,8 +913,8 @@ class Parser {
 			}
 			default:
 				throw new BconfError(
-					`unexpected value '${this.currToken.literal}'`,
-					this.currToken,
+					`unexpected value '${this.currentToken.literal}'`,
+					this.currentToken,
 				);
 		}
 	}
@@ -848,14 +930,14 @@ class Parser {
 			this.currentScope = new Scope(this.currentScope);
 		}
 
-		while (this.currToken.type !== stopToken && this.currToken.type !== TokenType.EOF) {
+		while (this.currentToken.type !== stopToken && this.currentToken.type !== TokenType.EOF) {
 			// Skip newlines used for formatting
-			while (this.currToken.type === TokenType.NEWLINE) {
+			while (this.currentToken.type === TokenType.NEWLINE) {
 				this.advance();
 			}
 
 			// Guarding against cases where its just lots of empty newlines at the end of the file
-			if (this.currToken.type === TokenType.EOF || this.currToken.type === stopToken) {
+			if (this.currentToken.type === TokenType.EOF || this.currentToken.type === stopToken) {
 				break;
 			}
 
@@ -872,7 +954,7 @@ class Parser {
 			const parent = getParentForKey(rootToUse, parsedKey);
 			const isDuplicateKey = lastKey.type !== "index" && Object.hasOwn(parent, keyToUse);
 			if (isDuplicateKey && args.duplicateKeys === "disallow") {
-				throw new BconfError("cannot have duplicate keys", this.currToken);
+				throw new BconfError("cannot have duplicate keys", this.currentToken);
 			}
 
 			switch (operator) {
@@ -943,7 +1025,7 @@ class Parser {
 							if (!isObject(resolved.value)) {
 								throw new BconfError(
 									"cannot merge non object values into current document when resolving statement",
-									this.currToken,
+									this.currentToken,
 								);
 							}
 							deepMerge(root, resolved.value);
@@ -957,13 +1039,13 @@ class Parser {
 				}
 			}
 
-			if (this.currToken.type === TokenType.COMMA) {
+			if (this.currentToken.type === TokenType.COMMA) {
 				if (isNotRoot) {
 					this.advance();
 				} else {
 					throw new BconfError(
 						"commas are only allowed in objects and arrays",
-						this.currToken,
+						this.currentToken,
 					);
 				}
 			}
@@ -973,11 +1055,18 @@ class Parser {
 	}
 
 	/**
-	 * @returns {Promise<Record<string, unknown>>}
+	 * @returns {Promise<ParseResult>}
 	 */
 	async parse() {
 		await this.parseBlock(TokenType.EOF, this.result, {});
-		return /** @type {Record<string, unknown>} */ (unwrap(this.result));
+		return {
+			data: /** @type {ParseResult['data']} */ (
+				this.opts.unwrap ? unwrap(this.result) : this.result
+			),
+			variables: /** @type {ParseResult['data']} */ (
+				this.opts.unwrap ? unwrap(this.exportedVariables) : this.exportedVariables
+			),
+		};
 	}
 }
 

@@ -27,53 +27,53 @@ async function assertThrows(input, messageMatch, opts) {
 
 describe("ref() Tag Resolver", () => {
 	it("should resolve reference to existing key", async () => {
-		const result = await parse("foo = 123\nbar = ref(foo)");
-		assert.deepStrictEqual(result, { foo: 123, bar: 123 });
+		const { data } = await parse("foo = 123\nbar = ref(foo)");
+		assert.deepStrictEqual(data, { foo: 123, bar: 123 });
 	});
 
 	it("should resolve reference to nested key", async () => {
-		const result = await parse("server.port = 8080\ndefault = ref(server.port)");
-		assert.deepStrictEqual(result, { server: { port: 8080 }, default: 8080 });
+		const { data } = await parse("server.port = 8080\ndefault = ref(server.port)");
+		assert.deepStrictEqual(data, { server: { port: 8080 }, default: 8080 });
 	});
 
 	it("should resolve reference to deeply nested key", async () => {
-		const result = await parse("a.b.c.d = 42\nvalue = ref(a.b.c.d)");
-		assert.deepStrictEqual(result, { a: { b: { c: { d: 42 } } }, value: 42 });
+		const { data } = await parse("a.b.c.d = 42\nvalue = ref(a.b.c.d)");
+		assert.deepStrictEqual(data, { a: { b: { c: { d: 42 } } }, value: 42 });
 	});
 
 	it("should resolve reference to array element", async () => {
-		const result = await parse("arr = [1, 2, 3]\nvalue = ref(arr[1])");
-		assert.deepStrictEqual(result, { arr: [1, 2, 3], value: 2 });
+		const { data } = await parse("arr = [1, 2, 3]\nvalue = ref(arr[1])");
+		assert.deepStrictEqual(data, { arr: [1, 2, 3], value: 2 });
 	});
 
 	it("should resolve reference to object in array", async () => {
-		const result = await parse("arr = [{ key = 123 }]\nvalue = ref(arr[0].key)");
-		assert.deepStrictEqual(result, { arr: [{ key: 123 }], value: 123 });
+		const { data } = await parse("arr = [{ key = 123 }]\nvalue = ref(arr[0].key)");
+		assert.deepStrictEqual(data, { arr: [{ key: 123 }], value: 123 });
 	});
 
 	it("should resolve reference to string value", async () => {
-		const result = await parse('str = "hello"\nvalue = ref(str)');
-		assert.deepStrictEqual(result, { str: "hello", value: "hello" });
+		const { data } = await parse('str = "hello"\nvalue = ref(str)');
+		assert.deepStrictEqual(data, { str: "hello", value: "hello" });
 	});
 
 	it("should resolve reference to boolean", async () => {
-		const result = await parse("flag = true\nvalue = ref(flag)");
-		assert.deepStrictEqual(result, { flag: true, value: true });
+		const { data } = await parse("flag = true\nvalue = ref(flag)");
+		assert.deepStrictEqual(data, { flag: true, value: true });
 	});
 
 	it("should resolve reference to null", async () => {
-		const result = await parse("empty = null\nvalue = ref(empty)");
-		assert.deepStrictEqual(result, { empty: null, value: null });
+		const { data } = await parse("empty = null\nvalue = ref(empty)");
+		assert.deepStrictEqual(data, { empty: null, value: null });
 	});
 
 	it("should resolve reference to object", async () => {
-		const result = await parse("obj = { a = 1 }\nvalue = ref(obj)");
-		assert.deepStrictEqual(result, { obj: { a: 1 }, value: { a: 1 } });
+		const { data } = await parse("obj = { a = 1 }\nvalue = ref(obj)");
+		assert.deepStrictEqual(data, { obj: { a: 1 }, value: { a: 1 } });
 	});
 
 	it("should resolve reference to array", async () => {
-		const result = await parse("arr = [1, 2]\nvalue = ref(arr)");
-		assert.deepStrictEqual(result, { arr: [1, 2], value: [1, 2] });
+		const { data } = await parse("arr = [1, 2]\nvalue = ref(arr)");
+		assert.deepStrictEqual(data, { arr: [1, 2], value: [1, 2] });
 	});
 
 	it("should reject reference to undefined key", async () => {
@@ -101,41 +101,41 @@ describe("ref() Tag Resolver", () => {
 	});
 
 	it("should resolve reference used in array", async () => {
-		const result = await parse("foo = 42\narr = [ref(foo), ref(foo)]");
-		assert.deepStrictEqual(result, { foo: 42, arr: [42, 42] });
+		const { data } = await parse("foo = 42\narr = [ref(foo), ref(foo)]");
+		assert.deepStrictEqual(data, { foo: 42, arr: [42, 42] });
 	});
 
 	it("should resolve reference used in object", async () => {
-		const result = await parse("port = 8080\nserver = { port = ref(port) }");
-		assert.deepStrictEqual(result, { port: 8080, server: { port: 8080 } });
+		const { data } = await parse("port = 8080\nserver = { port = ref(port) }");
+		assert.deepStrictEqual(data, { port: 8080, server: { port: 8080 } });
 	});
 
 	it("should resolve reference with numeric key", async () => {
-		const result = await parse("123 = 456\nvalue = ref(123)");
-		assert.deepStrictEqual(result, { 123: 456, value: 456 });
+		const { data } = await parse("123 = 456\nvalue = ref(123)");
+		assert.deepStrictEqual(data, { 123: 456, value: 456 });
 	});
 });
 
 describe("env() Tag Resolver", () => {
 	it("should resolve environment variable", async () => {
-		const result = await parse('value = env("TEST_VAR")', {
+		const { data } = await parse('value = env("TEST_VAR")', {
 			env: { TEST_VAR: "test_value" },
 		});
-		assert.deepStrictEqual(result, { value: "test_value" });
+		assert.deepStrictEqual(data, { value: "test_value" });
 	});
 
 	it("should resolve numeric environment variable", async () => {
-		const result = await parse('value = env("PORT")', {
+		const { data } = await parse('value = env("PORT")', {
 			env: { PORT: "8080" },
 		});
-		assert.deepStrictEqual(result, { value: "8080" });
+		assert.deepStrictEqual(data, { value: "8080" });
 	});
 
 	it("should resolve empty string environment variable", async () => {
-		const result = await parse('value = env("EMPTY")', {
+		const { data } = await parse('value = env("EMPTY")', {
 			env: { EMPTY: "" },
 		});
-		assert.deepStrictEqual(result, { value: "" });
+		assert.deepStrictEqual(data, { value: "" });
 	});
 
 	it("should reject undefined environment variable", async () => {
@@ -158,71 +158,71 @@ describe("env() Tag Resolver", () => {
 	});
 
 	it("should resolve environment variable with special characters", async () => {
-		const result = await parse('value = env("VAR_NAME_123")', {
+		const { data } = await parse('value = env("VAR_NAME_123")', {
 			env: { VAR_NAME_123: "value" },
 		});
-		assert.deepStrictEqual(result, { value: "value" });
+		assert.deepStrictEqual(data, { value: "value" });
 	});
 
 	it("should use environment variable in embedded value", async () => {
-		const result = await parse('str = "Port: ${env("PORT")}"', {
+		const { data } = await parse('str = "Port: ${env("PORT")}"', {
 			env: { PORT: "3000" },
 		});
-		assert.deepStrictEqual(result, { str: "Port: 3000" });
+		assert.deepStrictEqual(data, { str: "Port: 3000" });
 	});
 
 	it("should use environment variable in array", async () => {
-		const result = await parse('arr = [env("VAR1"), env("VAR2")]', {
+		const { data } = await parse('arr = [env("VAR1"), env("VAR2")]', {
 			env: { VAR1: "a", VAR2: "b" },
 		});
-		assert.deepStrictEqual(result, { arr: ["a", "b"] });
+		assert.deepStrictEqual(data, { arr: ["a", "b"] });
 	});
 });
 
 describe("string() Tag Resolver", () => {
 	it("should convert number to string", async () => {
-		const result = await parse("value = string(123)");
-		assert.deepStrictEqual(result, { value: "123" });
+		const { data } = await parse("value = string(123)");
+		assert.deepStrictEqual(data, { value: "123" });
 	});
 
 	it("should convert negative number to string", async () => {
-		const result = await parse("value = string(-456)");
-		assert.deepStrictEqual(result, { value: "-456" });
+		const { data } = await parse("value = string(-456)");
+		assert.deepStrictEqual(data, { value: "-456" });
 	});
 
 	it("should convert float to string", async () => {
-		const result = await parse("value = string(3.14)");
-		assert.deepStrictEqual(result, { value: "3.14" });
+		const { data } = await parse("value = string(3.14)");
+		assert.deepStrictEqual(data, { value: "3.14" });
 	});
 
 	it("should convert true to string", async () => {
-		const result = await parse("value = string(true)");
-		assert.deepStrictEqual(result, { value: "true" });
+		const { data } = await parse("value = string(true)");
+		assert.deepStrictEqual(data, { value: "true" });
 	});
 
 	it("should convert false to string", async () => {
-		const result = await parse("value = string(false)");
-		assert.deepStrictEqual(result, { value: "false" });
+		const { data } = await parse("value = string(false)");
+		assert.deepStrictEqual(data, { value: "false" });
 	});
 
 	it("should convert null to string", async () => {
-		const result = await parse("value = string(null)");
-		assert.deepStrictEqual(result, { value: "null" });
+		const { data } = await parse("value = string(null)");
+		assert.deepStrictEqual(data, { value: "null" });
 	});
 
 	it("should keep string as string", async () => {
-		const result = await parse('value = string("hello")');
-		assert.deepStrictEqual(result, { value: "hello" });
+		const { data } = await parse('value = string("hello")');
+		assert.deepStrictEqual(data, { value: "hello" });
 	});
 
 	it("should convert zero to string", async () => {
-		const result = await parse("value = string(0)");
-		assert.deepStrictEqual(result, { value: "0" });
+		const { data } = await parse("value = string(0)");
+		assert.deepStrictEqual(data, { value: "0" });
 	});
 
 	it("should convert negative zero to string", async () => {
-		const result = await parse("value = string(-0)");
-		assert.deepStrictEqual(result, { value: "0" });
+		const { data } = await parse("value = string(-0)");
+		assert.deepStrictEqual(data, { value: "0" });
 	});
 
 	it("should reject string conversion of object", async () => {
@@ -238,60 +238,60 @@ describe("string() Tag Resolver", () => {
 	});
 
 	it("should convert variable to string", async () => {
-		const result = await parse("$num = 42\nvalue = string($num)");
-		assert.deepStrictEqual(result, { value: "42" });
+		const { data } = await parse("$num = 42\nvalue = string($num)");
+		assert.deepStrictEqual(data, { value: "42" });
 	});
 
 	it("should use string() in embedded value", async () => {
-		const result = await parse('str = "Number: ${string(123)}"');
-		assert.deepStrictEqual(result, { str: "Number: 123" });
+		const { data } = await parse('str = "Number: ${string(123)}"');
+		assert.deepStrictEqual(data, { str: "Number: 123" });
 	});
 });
 
 describe("number() Tag Resolver", () => {
 	it("should convert string to number", async () => {
-		const result = await parse('value = number("123")');
-		assert.deepStrictEqual(result, { value: 123 });
+		const { data } = await parse('value = number("123")');
+		assert.deepStrictEqual(data, { value: 123 });
 	});
 
 	it("should convert negative string to number", async () => {
-		const result = await parse('value = number("-456")');
-		assert.deepStrictEqual(result, { value: -456 });
+		const { data } = await parse('value = number("-456")');
+		assert.deepStrictEqual(data, { value: -456 });
 	});
 
 	it("should convert float string to number", async () => {
-		const result = await parse('value = number("3.14")');
-		assert.deepStrictEqual(result, { value: 3.14 });
+		const { data } = await parse('value = number("3.14")');
+		assert.deepStrictEqual(data, { value: 3.14 });
 	});
 
 	it("should convert string with underscores to number", async () => {
-		const result = await parse('value = number("1_000_000")');
-		assert.deepStrictEqual(result, { value: 1000000 });
+		const { data } = await parse('value = number("1_000_000")');
+		assert.deepStrictEqual(data, { value: 1000000 });
 	});
 
 	it("should convert string with exponent to number", async () => {
-		const result = await parse('value = number("1.23e10")');
-		assert.strictEqual(result.value, 1.23e10);
+		const { data } = await parse('value = number("1.23e10")');
+		assert.strictEqual(data.value, 1.23e10);
 	});
 
 	it("should convert true to 1", async () => {
-		const result = await parse("value = number(true)");
-		assert.deepStrictEqual(result, { value: 1 });
+		const { data } = await parse("value = number(true)");
+		assert.deepStrictEqual(data, { value: 1 });
 	});
 
 	it("should convert false to 0", async () => {
-		const result = await parse("value = number(false)");
-		assert.deepStrictEqual(result, { value: 0 });
+		const { data } = await parse("value = number(false)");
+		assert.deepStrictEqual(data, { value: 0 });
 	});
 
 	it("should convert null to 0", async () => {
-		const result = await parse("value = number(null)");
-		assert.deepStrictEqual(result, { value: 0 });
+		const { data } = await parse("value = number(null)");
+		assert.deepStrictEqual(data, { value: 0 });
 	});
 
 	it("should keep number as number", async () => {
-		const result = await parse("value = number(42)");
-		assert.deepStrictEqual(result, { value: 42 });
+		const { data } = await parse("value = number(42)");
+		assert.deepStrictEqual(data, { value: 42 });
 	});
 
 	it("should reject invalid number string", async () => {
@@ -327,70 +327,70 @@ describe("number() Tag Resolver", () => {
 	});
 
 	it("should convert variable to number", async () => {
-		const result = await parse('$str = "456"\nvalue = number($str)');
-		assert.deepStrictEqual(result, { value: 456 });
+		const { data } = await parse('$str = "456"\nvalue = number($str)');
+		assert.deepStrictEqual(data, { value: 456 });
 	});
 });
 
 describe("int() Tag Resolver", () => {
 	it("should truncate float to integer", async () => {
-		const result = await parse("value = int(3.7)");
-		assert.deepStrictEqual(result, { value: 3 });
+		const { data } = await parse("value = int(3.7)");
+		assert.deepStrictEqual(data, { value: 3 });
 	});
 
 	it("should truncate negative float to integer", async () => {
-		const result = await parse("value = int(-3.7)");
-		assert.deepStrictEqual(result, { value: -3 });
+		const { data } = await parse("value = int(-3.7)");
+		assert.deepStrictEqual(data, { value: -3 });
 	});
 
 	it("should keep integer as integer", async () => {
-		const result = await parse("value = int(42)");
-		assert.deepStrictEqual(result, { value: 42 });
+		const { data } = await parse("value = int(42)");
+		assert.deepStrictEqual(data, { value: 42 });
 	});
 
 	it("should convert string to integer", async () => {
-		const result = await parse('value = int("123")');
-		assert.deepStrictEqual(result, { value: 123 });
+		const { data } = await parse('value = int("123")');
+		assert.deepStrictEqual(data, { value: 123 });
 	});
 
 	it("should convert float string to integer", async () => {
-		const result = await parse('value = int("123.456")');
-		assert.deepStrictEqual(result, { value: 123 });
+		const { data } = await parse('value = int("123.456")');
+		assert.deepStrictEqual(data, { value: 123 });
 	});
 
 	it("should convert string with underscores to integer", async () => {
-		const result = await parse('value = int("1_000_000")');
-		assert.deepStrictEqual(result, { value: 1000000 });
+		const { data } = await parse('value = int("1_000_000")');
+		assert.deepStrictEqual(data, { value: 1000000 });
 	});
 
 	it("should convert exponent to integer", async () => {
-		const result = await parse("value = int(1.5e2)");
-		assert.deepStrictEqual(result, { value: 150 });
+		const { data } = await parse("value = int(1.5e2)");
+		assert.deepStrictEqual(data, { value: 150 });
 	});
 
 	it("should truncate toward zero for positive numbers", async () => {
-		const result = await parse("value = int(9.9)");
-		assert.deepStrictEqual(result, { value: 9 });
+		const { data } = await parse("value = int(9.9)");
+		assert.deepStrictEqual(data, { value: 9 });
 	});
 
 	it("should truncate toward zero for negative numbers", async () => {
-		const result = await parse("value = int(-9.9)");
-		assert.deepStrictEqual(result, { value: -9 });
+		const { data } = await parse("value = int(-9.9)");
+		assert.deepStrictEqual(data, { value: -9 });
 	});
 
 	it("should convert true to 1", async () => {
-		const result = await parse("value = int(true)");
-		assert.deepStrictEqual(result, { value: 1 });
+		const { data } = await parse("value = int(true)");
+		assert.deepStrictEqual(data, { value: 1 });
 	});
 
 	it("should convert false to 0", async () => {
-		const result = await parse("value = int(false)");
-		assert.deepStrictEqual(result, { value: 0 });
+		const { data } = await parse("value = int(false)");
+		assert.deepStrictEqual(data, { value: 0 });
 	});
 
 	it("should convert null to 0", async () => {
-		const result = await parse("value = int(null)");
-		assert.deepStrictEqual(result, { value: 0 });
+		const { data } = await parse("value = int(null)");
+		assert.deepStrictEqual(data, { value: 0 });
 	});
 
 	it("should reject invalid integer string", async () => {
@@ -410,60 +410,60 @@ describe("int() Tag Resolver", () => {
 	});
 
 	it("should handle zero", async () => {
-		const result = await parse("value = int(0)");
-		assert.deepStrictEqual(result, { value: 0 });
+		const { data } = await parse("value = int(0)");
+		assert.deepStrictEqual(data, { value: 0 });
 	});
 
 	it("should handle negative zero", async () => {
-		const result = await parse("value = int(-0.0)");
-		assert.deepStrictEqual(result, { value: -0 });
+		const { data } = await parse("value = int(-0.0)");
+		assert.deepStrictEqual(data, { value: -0 });
 	});
 });
 
 describe("float() Tag Resolver", () => {
 	it("should convert integer to float", async () => {
-		const result = await parse("value = float(42)");
-		assert.deepStrictEqual(result, { value: 42.0 });
+		const { data } = await parse("value = float(42)");
+		assert.deepStrictEqual(data, { value: 42.0 });
 	});
 
 	it("should keep float as float", async () => {
-		const result = await parse("value = float(3.14)");
-		assert.deepStrictEqual(result, { value: 3.14 });
+		const { data } = await parse("value = float(3.14)");
+		assert.deepStrictEqual(data, { value: 3.14 });
 	});
 
 	it("should convert string to float", async () => {
-		const result = await parse('value = float("123.456")');
-		assert.deepStrictEqual(result, { value: 123.456 });
+		const { data } = await parse('value = float("123.456")');
+		assert.deepStrictEqual(data, { value: 123.456 });
 	});
 
 	it("should convert integer string to float", async () => {
-		const result = await parse('value = float("42")');
-		assert.deepStrictEqual(result, { value: 42.0 });
+		const { data } = await parse('value = float("42")');
+		assert.deepStrictEqual(data, { value: 42.0 });
 	});
 
 	it("should convert string with underscores to float", async () => {
-		const result = await parse('value = float("1_000.5")');
-		assert.deepStrictEqual(result, { value: 1000.5 });
+		const { data } = await parse('value = float("1_000.5")');
+		assert.deepStrictEqual(data, { value: 1000.5 });
 	});
 
 	it("should convert string with exponent to float", async () => {
-		const result = await parse('value = float("1.5e2")');
-		assert.deepStrictEqual(result, { value: 1.5e2 });
+		const { data } = await parse('value = float("1.5e2")');
+		assert.deepStrictEqual(data, { value: 1.5e2 });
 	});
 
 	it("should convert true to 1.0", async () => {
-		const result = await parse("value = float(true)");
-		assert.deepStrictEqual(result, { value: 1.0 });
+		const { data } = await parse("value = float(true)");
+		assert.deepStrictEqual(data, { value: 1.0 });
 	});
 
 	it("should convert false to 0.0", async () => {
-		const result = await parse("value = float(false)");
-		assert.deepStrictEqual(result, { value: 0.0 });
+		const { data } = await parse("value = float(false)");
+		assert.deepStrictEqual(data, { value: 0.0 });
 	});
 
 	it("should convert null to 0.0", async () => {
-		const result = await parse("value = float(null)");
-		assert.deepStrictEqual(result, { value: 0.0 });
+		const { data } = await parse("value = float(null)");
+		assert.deepStrictEqual(data, { value: 0.0 });
 	});
 
 	it("should reject invalid float string", async () => {
@@ -483,70 +483,70 @@ describe("float() Tag Resolver", () => {
 	});
 
 	it("should handle zero", async () => {
-		const result = await parse("value = float(0)");
-		assert.deepStrictEqual(result, { value: 0.0 });
+		const { data } = await parse("value = float(0)");
+		assert.deepStrictEqual(data, { value: 0.0 });
 	});
 
 	it("should handle negative zero", async () => {
-		const result = await parse("value = float(-0)");
-		assert.deepStrictEqual(result, { value: -0.0 });
+		const { data } = await parse("value = float(-0)");
+		assert.deepStrictEqual(data, { value: -0.0 });
 	});
 
 	it("should convert negative numbers", async () => {
-		const result = await parse("value = float(-123)");
-		assert.deepStrictEqual(result, { value: -123.0 });
+		const { data } = await parse("value = float(-123)");
+		assert.deepStrictEqual(data, { value: -123.0 });
 	});
 });
 
 describe("bool() Tag Resolver", () => {
 	it("should keep true as true", async () => {
-		const result = await parse("value = bool(true)");
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse("value = bool(true)");
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should keep false as false", async () => {
-		const result = await parse("value = bool(false)");
-		assert.deepStrictEqual(result, { value: false });
+		const { data } = await parse("value = bool(false)");
+		assert.deepStrictEqual(data, { value: false });
 	});
 
 	it("should convert null to false", async () => {
-		const result = await parse("value = bool(null)");
-		assert.deepStrictEqual(result, { value: false });
+		const { data } = await parse("value = bool(null)");
+		assert.deepStrictEqual(data, { value: false });
 	});
 
 	it("should convert non-zero number to true", async () => {
-		const result = await parse("value = bool(42)");
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse("value = bool(42)");
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should convert negative number to true", async () => {
-		const result = await parse("value = bool(-1)");
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse("value = bool(-1)");
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should convert zero to false", async () => {
-		const result = await parse("value = bool(0)");
-		assert.deepStrictEqual(result, { value: false });
+		const { data } = await parse("value = bool(0)");
+		assert.deepStrictEqual(data, { value: false });
 	});
 
 	it("should convert negative zero to false", async () => {
-		const result = await parse("value = bool(-0.0)");
-		assert.deepStrictEqual(result, { value: false });
+		const { data } = await parse("value = bool(-0.0)");
+		assert.deepStrictEqual(data, { value: false });
 	});
 
 	it("should convert non-empty string to true", async () => {
-		const result = await parse('value = bool("text")');
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse('value = bool("text")');
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should convert empty string to false", async () => {
-		const result = await parse('value = bool("")');
-		assert.deepStrictEqual(result, { value: false });
+		const { data } = await parse('value = bool("")');
+		assert.deepStrictEqual(data, { value: false });
 	});
 
 	it("should convert float to true", async () => {
-		const result = await parse("value = bool(0.1)");
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse("value = bool(0.1)");
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should reject bool conversion of object", async () => {
@@ -562,57 +562,57 @@ describe("bool() Tag Resolver", () => {
 	});
 
 	it("should convert string '0' to true", async () => {
-		const result = await parse('value = bool("0")');
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse('value = bool("0")');
+		assert.deepStrictEqual(data, { value: true });
 	});
 
 	it("should convert string 'false' to true", async () => {
-		const result = await parse('value = bool("false")');
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse('value = bool("false")');
+		assert.deepStrictEqual(data, { value: true });
 	});
 });
 
 describe("import Statement Resolver", () => {
 	it("should import single variable", async () => {
-		const result = await parse('import from "./file.bconf" { $var }', {
+		const { data } = await parse('import from "./file.bconf" { $var }', {
 			loader: () => "export vars { $var = 123 }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import multiple variables", async () => {
-		const result = await parse('import from "./file.bconf" { $a, $b }', {
+		const { data } = await parse('import from "./file.bconf" { $a, $b }', {
 			loader: () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import variable with alias", async () => {
-		const result = await parse('import from "./file.bconf" { $var as $alias }', {
+		const { data } = await parse('import from "./file.bconf" { $var as $alias }', {
 			loader: () => "$var = 123\nexport vars { $var }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import multiple variables with aliases", async () => {
-		const result = await parse('import from "./file.bconf" { $a as $x, $b as $y }', {
+		const { data } = await parse('import from "./file.bconf" { $a as $x, $b as $y }', {
 			loader: () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import variable with multiple aliases", async () => {
-		const result = await parse('import from "./file.bconf" { $var as $a, $var as $b }', {
+		const { data } = await parse('import from "./file.bconf" { $var as $a, $var as $b }', {
 			loader: () => "$var = 123\nexport vars { $var }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should ignore non-exported variables", async () => {
-		const result = await parse('import from "./file.bconf" { $var }', {
+		const { data } = await parse('import from "./file.bconf" { $var }', {
 			loader: () => "$var = 123\n$other = 456\nexport vars { $var }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should reject import without 'from' keyword", async () => {
@@ -676,42 +676,42 @@ describe("import Statement Resolver", () => {
 	});
 
 	it("should allow importing false variable", async () => {
-		const result = await parse('import from "./file.bconf" { $var = false }', {
+		const { data } = await parse('import from "./file.bconf" { $var = false }', {
 			loader: () => "$var = 123\nexport vars { $var }",
 		});
-		assert.deepStrictEqual(result, {});
+		assert.deepStrictEqual(data, {});
 	});
 });
 
 describe("export Statement Resolver", () => {
 	it("should export single variable", async () => {
-		const result = await parse("$var = 123\nexport vars { $var }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("$var = 123\nexport vars { $var }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should export multiple variables", async () => {
-		const result = await parse("$a = 1\n$b = 2\nexport vars { $a, $b }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("$a = 1\n$b = 2\nexport vars { $a, $b }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should export variable with alias", async () => {
-		const result = await parse("$var = 123\nexport vars { $var as $alias }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("$var = 123\nexport vars { $var as $alias }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should export variable with multiple aliases", async () => {
-		const result = await parse("$var = 123\nexport vars { $var as $a, $var as $b }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("$var = 123\nexport vars { $var as $a, $var as $b }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should export inline declared variable", async () => {
-		const result = await parse("export vars { $new_var }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("export vars { $new_var }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should export inline declared variable with alias", async () => {
-		const result = await parse("export vars { $new as $alias }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("export vars { $new as $alias }");
+		assert.deepStrictEqual(data, {});
 	});
 
 	it("should reject export with invalid second argument", async () => {
@@ -734,52 +734,52 @@ describe("export Statement Resolver", () => {
 	});
 
 	it("should ignore non-variable keys in export", async () => {
-		const result = await parse("$var = 1\nexport vars { $var, regular = true }");
-		assert.deepStrictEqual(result, {});
+		const { data } = await parse("$var = 1\nexport vars { $var, regular = true }");
+		assert.deepStrictEqual(data, {});
 	});
 });
 
 describe("extends Statement Resolver", () => {
 	it("should extend with base config", async () => {
-		const result = await parse('extends "./base.bconf"\nkey2 = 2', {
+		const { data } = await parse('extends "./base.bconf"\nkey2 = 2', {
 			loader: () => "key1 = 1",
 		});
-		assert.deepStrictEqual(result, { key1: 1, key2: 2 });
+		assert.deepStrictEqual(data, { key1: 1, key2: 2 });
 	});
 
 	it("should override base config values", async () => {
-		const result = await parse('extends "./base.bconf"\nkey = 2', {
+		const { data } = await parse('extends "./base.bconf"\nkey = 2', {
 			loader: () => "key = 1",
 		});
-		assert.deepStrictEqual(result, { key: 2 });
+		assert.deepStrictEqual(data, { key: 2 });
 	});
 
 	it("should merge nested objects", async () => {
-		const result = await parse('extends "./base.bconf"\nserver.port = 3000', {
+		const { data } = await parse('extends "./base.bconf"\nserver.port = 3000', {
 			loader: () => 'server.host = "localhost"',
 		});
-		assert.deepStrictEqual(result, { server: { host: "localhost", port: 3000 } });
+		assert.deepStrictEqual(data, { server: { host: "localhost", port: 3000 } });
 	});
 
 	it("should extend deeply nested objects", async () => {
-		const result = await parse('extends "./base.bconf"\na.b.c = 3', {
+		const { data } = await parse('extends "./base.bconf"\na.b.c = 3', {
 			loader: () => "a.b.d = 4",
 		});
-		assert.deepStrictEqual(result, { a: { b: { d: 4, c: 3 } } });
+		assert.deepStrictEqual(data, { a: { b: { d: 4, c: 3 } } });
 	});
 
 	it("should override arrays completely", async () => {
-		const result = await parse('extends "./base.bconf"\narr = [3, 4]', {
+		const { data } = await parse('extends "./base.bconf"\narr = [3, 4]', {
 			loader: () => "arr = [1, 2]",
 		});
-		assert.deepStrictEqual(result, { arr: [3, 4] });
+		assert.deepStrictEqual(data, { arr: [3, 4] });
 	});
 
 	it("should override primitives completely", async () => {
-		const result = await parse('extends "./base.bconf"\nvalue = 999', {
+		const { data } = await parse('extends "./base.bconf"\nvalue = 999', {
 			loader: () => "value = 1",
 		});
-		assert.deepStrictEqual(result, { value: 999 });
+		assert.deepStrictEqual(data, { value: 999 });
 	});
 
 	it("should reject extends with non-string file path", async () => {
@@ -787,31 +787,31 @@ describe("extends Statement Resolver", () => {
 	});
 
 	it("should handle multiple extends statements", async () => {
-		const result = await parse('extends "./base1.bconf"\nextends "./base2.bconf"\nkey3 = 3', {
+		const { data } = await parse('extends "./base1.bconf"\nextends "./base2.bconf"\nkey3 = 3', {
 			loader: (_, path) => {
 				if (path === "./base1.bconf") return "key1 = 1";
 				if (path === "./base2.bconf") return "key2 = 2";
 				return "";
 			},
 		});
-		assert.deepStrictEqual(result, { key1: 1, key2: 2, key3: 3 });
+		assert.deepStrictEqual(data, { key1: 1, key2: 2, key3: 3 });
 	});
 
 	it("should handle extends with empty base", async () => {
-		const result = await parse('extends "./empty.bconf"\nkey = 1', {
+		const { data } = await parse('extends "./empty.bconf"\nkey = 1', {
 			loader: () => "",
 		});
-		assert.deepStrictEqual(result, { key: 1 });
+		assert.deepStrictEqual(data, { key: 1 });
 	});
 
 	it("should merge complex structures", async () => {
-		const result = await parse(
+		const { data } = await parse(
 			'extends "./base.bconf"\nserver.ssl = true\nfeatures.beta = false',
 			{
 				loader: () => 'server { host = "localhost"\nport = 8080 }\nfeatures.alpha = true',
 			},
 		);
-		assert.deepStrictEqual(result, {
+		assert.deepStrictEqual(data, {
 			server: { host: "localhost", port: 8080, ssl: true },
 			features: { alpha: true, beta: false },
 		});
@@ -820,114 +820,114 @@ describe("extends Statement Resolver", () => {
 
 describe("Combined Resolver Usage", () => {
 	it("should use ref() with env()", async () => {
-		const result = await parse('port = env("PORT")\ndefault = ref(port)', {
+		const { data } = await parse('port = env("PORT")\ndefault = ref(port)', {
 			env: { PORT: "8080" },
 		});
-		assert.deepStrictEqual(result, { port: "8080", default: "8080" });
+		assert.deepStrictEqual(data, { port: "8080", default: "8080" });
 	});
 
 	it("should use string() with ref()", async () => {
-		const result = await parse("num = 42\nstr = string(ref(num))");
-		assert.deepStrictEqual(result, { num: 42, str: "42" });
+		const { data } = await parse("num = 42\nstr = string(ref(num))");
+		assert.deepStrictEqual(data, { num: 42, str: "42" });
 	});
 
 	it("should use number() with env()", async () => {
-		const result = await parse('port = number(env("PORT"))', {
+		const { data } = await parse('port = number(env("PORT"))', {
 			env: { PORT: "8080" },
 		});
-		assert.deepStrictEqual(result, { port: 8080 });
+		assert.deepStrictEqual(data, { port: 8080 });
 	});
 
 	it("should use int() with ref()", async () => {
-		const result = await parse("value = 3.7\ntruncated = int(ref(value))");
-		assert.deepStrictEqual(result, { value: 3.7, truncated: 3 });
+		const { data } = await parse("value = 3.7\ntruncated = int(ref(value))");
+		assert.deepStrictEqual(data, { value: 3.7, truncated: 3 });
 	});
 
 	it("should use bool() with ref()", async () => {
-		const result = await parse("num = 1\nflag = bool(ref(num))");
-		assert.deepStrictEqual(result, { num: 1, flag: true });
+		const { data } = await parse("num = 1\nflag = bool(ref(num))");
+		assert.deepStrictEqual(data, { num: 1, flag: true });
 	});
 
 	it("should chain multiple conversions", async () => {
-		const result = await parse('str = "3.7"\nvalue = int(number(ref(str)))');
-		assert.deepStrictEqual(result, { str: "3.7", value: 3 });
+		const { data } = await parse('str = "3.7"\nvalue = int(number(ref(str)))');
+		assert.deepStrictEqual(data, { str: "3.7", value: 3 });
 	});
 
 	it("should use extends with ref()", async () => {
-		const result = await parse('extends "./base.bconf"\ncopy = ref(original)', {
+		const { data } = await parse('extends "./base.bconf"\ncopy = ref(original)', {
 			loader: () => "original = 123",
 		});
-		assert.deepStrictEqual(result, { original: 123, copy: 123 });
+		assert.deepStrictEqual(data, { original: 123, copy: 123 });
 	});
 
 	it("should use all conversion tags in array", async () => {
-		const result = await parse('arr = [string(1), number("2"), int(3.5), float(4), bool(1)]');
-		assert.deepStrictEqual(result, { arr: ["1", 2, 3, 4.0, true] });
+		const { data } = await parse('arr = [string(1), number("2"), int(3.5), float(4), bool(1)]');
+		assert.deepStrictEqual(data, { arr: ["1", 2, 3, 4.0, true] });
 	});
 
 	it("should use tags in embedded values", async () => {
-		const result = await parse('port = 8080\nstr = "Port: ${string(ref(port))}"');
-		assert.deepStrictEqual(result, { port: 8080, str: "Port: 8080" });
+		const { data } = await parse('port = 8080\nstr = "Port: ${string(ref(port))}"');
+		assert.deepStrictEqual(data, { port: 8080, str: "Port: 8080" });
 	});
 });
 
 describe("Resolver Edge Cases", () => {
 	it("should handle ref() to value that is ref()", async () => {
-		const result = await parse("a = 1\nb = ref(a)\nc = ref(b)");
-		assert.deepStrictEqual(result, { a: 1, b: 1, c: 1 });
+		const { data } = await parse("a = 1\nb = ref(a)\nc = ref(b)");
+		assert.deepStrictEqual(data, { a: 1, b: 1, c: 1 });
 	});
 
 	it("should handle conversion tags with variables", async () => {
-		const result = await parse('$str = "123"\nnum = number($str)');
-		assert.deepStrictEqual(result, { num: 123 });
+		const { data } = await parse('$str = "123"\nnum = number($str)');
+		assert.deepStrictEqual(data, { num: 123 });
 	});
 
 	it("should handle extends overriding ref()", async () => {
-		const result = await parse('extends "./base.bconf"\nvalue = 999', {
+		const { data } = await parse('extends "./base.bconf"\nvalue = 999', {
 			loader: () => "original = 123\nvalue = ref(original)",
 		});
-		assert.deepStrictEqual(result, { original: 123, value: 999 });
+		assert.deepStrictEqual(data, { original: 123, value: 999 });
 	});
 
 	it("should handle ref() in extends base", async () => {
-		const result = await parse('extends "./base.bconf"\nother = 2', {
+		const { data } = await parse('extends "./base.bconf"\nother = 2', {
 			loader: () => "original = 1\ncopy = ref(original)",
 		});
-		assert.deepStrictEqual(result, { original: 1, copy: 1, other: 2 });
+		assert.deepStrictEqual(data, { original: 1, copy: 1, other: 2 });
 	});
 
 	it("should handle empty object in extends", async () => {
-		const result = await parse('extends "./base.bconf"\nobj = {}', {
+		const { data } = await parse('extends "./base.bconf"\nobj = {}', {
 			loader: () => "obj.key = 1",
 		});
-		assert.deepStrictEqual(result, { obj: {} });
+		assert.deepStrictEqual(data, { obj: {} });
 	});
 
 	it("should handle env() with number-like string", async () => {
-		const result = await parse('value = env("NUM")', {
+		const { data } = await parse('value = env("NUM")', {
 			env: { NUM: "0123" },
 		});
-		assert.deepStrictEqual(result, { value: "0123" });
+		assert.deepStrictEqual(data, { value: "0123" });
 	});
 
 	it("should handle string() with scientific notation", async () => {
-		const result = await parse("value = string(1.23e10)");
-		assert.strictEqual(result.value, "12300000000");
+		const { data } = await parse("value = string(1.23e10)");
+		assert.strictEqual(data.value, "12300000000");
 	});
 
 	it("should handle number() with positive sign", async () => {
-		const result = await parse('value = number("+42")');
-		assert.deepStrictEqual(result, { value: 42 });
+		const { data } = await parse('value = number("+42")');
+		assert.deepStrictEqual(data, { value: 42 });
 	});
 
 	it("should handle int() with very large float", async () => {
-		const result = await parse("value = int(999999999.9)");
-		assert.deepStrictEqual(result, { value: 999999999 });
+		const { data } = await parse("value = int(999999999.9)");
+		assert.deepStrictEqual(data, { value: 999999999 });
 	});
 
 	it("should handle bool() with space string", async () => {
-		const result = await parse('value = bool(" ")');
-		assert.deepStrictEqual(result, { value: true });
+		const { data } = await parse('value = bool(" ")');
+		assert.deepStrictEqual(data, { value: true });
 	});
 });
 

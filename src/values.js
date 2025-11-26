@@ -48,6 +48,9 @@ export class Tag {
 		this.arg = arg;
 	}
 
+	/**
+	 * @returns {[string, Value]}
+	 */
 	serialize() {
 		return [this.name, this.arg];
 	}

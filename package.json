@@ -1,9 +1,21 @@
 {
 	"name": "bconfjs",
 	"version": "0.1.0",
-	"description": "bconf parser and serializer",
+	"description": "bconf parser",
 	"main": "./src/index.js",
+	"types": "./src/index.d.ts",
 	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.js",
+			"types": "./src/index.d.ts"
+		}
+	},
+	"files": [
+		"src",
+		"!src/*.test.*",
+		"README.md"
+	],
 	"scripts": {
 		"test": "node --test",
 		"typecheck": "tsc --noEmit",
@@ -11,8 +23,15 @@
 		"format": "biome format --write"
 	},
 	"keywords": [],
-	"author": "",
 	"license": "MIT",
+	"homepage": "https://bconf-lang.org",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bconf-lang/bconfjs.git"
+	},
+	"bugs": {
+		"url": "https://github.com/bconf-lang/bconfjs/issues"
+	},
 	"packageManager": "pnpm@10.17.1",
 	"devDependencies": {
 		"@biomejs/biome": "2.3.7",

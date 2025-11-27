@@ -1,0 +1,43 @@
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - name: Setup Biome
+              uses: biomejs/setup-biome@v2
+            - name: Run Biome
+              run: biome ci .
+
+    type-check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-node@v6
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+            - name: Install
+              run: pnpm install --frozen-lockfile
+            - name: Type check
+              run: pnpm typecheck
+
+    tests:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-node@v6
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+            - name: Run tests
+              run: node --test

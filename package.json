@@ -6,6 +6,7 @@
 	"type": "module",
 	"scripts": {
 		"test": "node --test",
+		"typecheck": "tsc --noEmit",
 		"lint": "biome lint",
 		"format": "biome format --write"
 	},

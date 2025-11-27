@@ -575,42 +575,42 @@ describe("bool() Tag Resolver", () => {
 describe("import Statement Resolver", () => {
 	it("should import single variable", async () => {
 		const { data } = await parse('import from "./file.bconf" { $var }', {
-			loader: () => "export vars { $var = 123 }",
+			loader: async () => "export vars { $var = 123 }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import multiple variables", async () => {
 		const { data } = await parse('import from "./file.bconf" { $a, $b }', {
-			loader: () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
+			loader: async () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import variable with alias", async () => {
 		const { data } = await parse('import from "./file.bconf" { $var as $alias }', {
-			loader: () => "$var = 123\nexport vars { $var }",
+			loader: async () => "$var = 123\nexport vars { $var }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import multiple variables with aliases", async () => {
 		const { data } = await parse('import from "./file.bconf" { $a as $x, $b as $y }', {
-			loader: () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
+			loader: async () => "$a = 1\n$b = 2\nexport vars { $a, $b }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
 
 	it("should import variable with multiple aliases", async () => {
 		const { data } = await parse('import from "./file.bconf" { $var as $a, $var as $b }', {
-			loader: () => "$var = 123\nexport vars { $var }",
+			loader: async () => "$var = 123\nexport vars { $var }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
 
 	it("should ignore non-exported variables", async () => {
 		const { data } = await parse('import from "./file.bconf" { $var }', {
-			loader: () => "$var = 123\n$other = 456\nexport vars { $var }",
+			loader: async () => "$var = 123\n$other = 456\nexport vars { $var }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
@@ -621,7 +621,7 @@ describe("import Statement Resolver", () => {
 
 	it("should reject import with invalid second argument", async () => {
 		await assertThrows("import test { $var }", "expected 'from'", {
-			loader: () => "$var = 1",
+			loader: async () => "$var = 1",
 		});
 	});
 
@@ -650,7 +650,7 @@ describe("import Statement Resolver", () => {
 			'import from "./file.bconf" { $missing }',
 			"variable '$missing' is not exported",
 			{
-				loader: () => "export vars { $var = 123 }",
+				loader: async () => "export vars { $var = 123 }",
 			},
 		);
 	});
@@ -660,7 +660,7 @@ describe("import Statement Resolver", () => {
 			'import from "./file.bconf" { $var bad $alias }',
 			"expected 'as' for alias statement",
 			{
-				loader: () => "$var = 123\nexport vars { $var }",
+				loader: async () => "$var = 123\nexport vars { $var }",
 			},
 		);
 	});
@@ -670,14 +670,14 @@ describe("import Statement Resolver", () => {
 			'$existing = 1\nimport from "./file.bconf" { $var as $existing }',
 			"cannot be imported as it has already been declared",
 			{
-				loader: () => "$var = 123\nexport vars { $var }",
+				loader: async () => "$var = 123\nexport vars { $var }",
 			},
 		);
 	});
 
 	it("should allow importing false variable", async () => {
 		const { data } = await parse('import from "./file.bconf" { $var = false }', {
-			loader: () => "$var = 123\nexport vars { $var }",
+			loader: async () => "$var = 123\nexport vars { $var }",
 		});
 		assert.deepStrictEqual(data, {});
 	});
@@ -742,42 +742,42 @@ describe("export Statement Resolver", () => {
 describe("extends Statement Resolver", () => {
 	it("should extend with base config", async () => {
 		const { data } = await parse('extends "./base.bconf"\nkey2 = 2', {
-			loader: () => "key1 = 1",
+			loader: async () => "key1 = 1",
 		});
 		assert.deepStrictEqual(data, { key1: 1, key2: 2 });
 	});
 
 	it("should override base config values", async () => {
 		const { data } = await parse('extends "./base.bconf"\nkey = 2', {
-			loader: () => "key = 1",
+			loader: async () => "key = 1",
 		});
 		assert.deepStrictEqual(data, { key: 2 });
 	});
 
 	it("should merge nested objects", async () => {
 		const { data } = await parse('extends "./base.bconf"\nserver.port = 3000', {
-			loader: () => 'server.host = "localhost"',
+			loader: async () => 'server.host = "localhost"',
 		});
 		assert.deepStrictEqual(data, { server: { host: "localhost", port: 3000 } });
 	});
 
 	it("should extend deeply nested objects", async () => {
 		const { data } = await parse('extends "./base.bconf"\na.b.c = 3', {
-			loader: () => "a.b.d = 4",
+			loader: async () => "a.b.d = 4",
 		});
 		assert.deepStrictEqual(data, { a: { b: { d: 4, c: 3 } } });
 	});
 
 	it("should override arrays completely", async () => {
 		const { data } = await parse('extends "./base.bconf"\narr = [3, 4]', {
-			loader: () => "arr = [1, 2]",
+			loader: async () => "arr = [1, 2]",
 		});
 		assert.deepStrictEqual(data, { arr: [3, 4] });
 	});
 
 	it("should override primitives completely", async () => {
 		const { data } = await parse('extends "./base.bconf"\nvalue = 999', {
-			loader: () => "value = 1",
+			loader: async () => "value = 1",
 		});
 		assert.deepStrictEqual(data, { value: 999 });
 	});
@@ -788,7 +788,7 @@ describe("extends Statement Resolver", () => {
 
 	it("should handle multiple extends statements", async () => {
 		const { data } = await parse('extends "./base1.bconf"\nextends "./base2.bconf"\nkey3 = 3', {
-			loader: (_, path) => {
+			loader: async (_, path) => {
 				if (path === "./base1.bconf") return "key1 = 1";
 				if (path === "./base2.bconf") return "key2 = 2";
 				return "";
@@ -799,7 +799,7 @@ describe("extends Statement Resolver", () => {
 
 	it("should handle extends with empty base", async () => {
 		const { data } = await parse('extends "./empty.bconf"\nkey = 1', {
-			loader: () => "",
+			loader: async () => "",
 		});
 		assert.deepStrictEqual(data, { key: 1 });
 	});
@@ -808,7 +808,8 @@ describe("extends Statement Resolver", () => {
 		const { data } = await parse(
 			'extends "./base.bconf"\nserver.ssl = true\nfeatures.beta = false',
 			{
-				loader: () => 'server { host = "localhost"\nport = 8080 }\nfeatures.alpha = true',
+				loader: async () =>
+					'server { host = "localhost"\nport = 8080 }\nfeatures.alpha = true',
 			},
 		);
 		assert.deepStrictEqual(data, {
@@ -855,7 +856,7 @@ describe("Combined Resolver Usage", () => {
 
 	it("should use extends with ref()", async () => {
 		const { data } = await parse('extends "./base.bconf"\ncopy = ref(original)', {
-			loader: () => "original = 123",
+			loader: async () => "original = 123",
 		});
 		assert.deepStrictEqual(data, { original: 123, copy: 123 });
 	});
@@ -884,21 +885,21 @@ describe("Resolver Edge Cases", () => {
 
 	it("should handle extends overriding ref()", async () => {
 		const { data } = await parse('extends "./base.bconf"\nvalue = 999', {
-			loader: () => "original = 123\nvalue = ref(original)",
+			loader: async () => "original = 123\nvalue = ref(original)",
 		});
 		assert.deepStrictEqual(data, { original: 123, value: 999 });
 	});
 
 	it("should handle ref() in extends base", async () => {
 		const { data } = await parse('extends "./base.bconf"\nother = 2', {
-			loader: () => "original = 1\ncopy = ref(original)",
+			loader: async () => "original = 1\ncopy = ref(original)",
 		});
 		assert.deepStrictEqual(data, { original: 1, copy: 1, other: 2 });
 	});
 
 	it("should handle empty object in extends", async () => {
 		const { data } = await parse('extends "./base.bconf"\nobj = {}', {
-			loader: () => "obj.key = 1",
+			loader: async () => "obj.key = 1",
 		});
 		assert.deepStrictEqual(data, { obj: {} });
 	});
@@ -965,7 +966,7 @@ describe("Resolver Error Messages", () => {
 	it("should provide clear error for missing import variable", async () => {
 		try {
 			await parse('import from "./file.bconf" { $missing }', {
-				loader: () => "$var = 1\nexport vars { $var }",
+				loader: async () => "$var = 1\nexport vars { $var }",
 			});
 			assert.fail("Should have thrown");
 		} catch (err) {
